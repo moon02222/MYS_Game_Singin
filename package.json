@@ -1,20 +1,29 @@
 {
+  "private": true,
   "name": "mihoyo-sign-in",
   "version": "1.1.0",
-  "description": "",
+  "description": "MiHoYo daily sign-in automation script",
   "main": "main.js",
   "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node main.js"
   },
-  "keywords": [],
+  "keywords": [
+    "mihoyo",
+    "genshin",
+    "starrail",
+    "sign-in",
+    "github-actions"
+  ],
   "author": "",
   "license": "ISC",
+  "engines": {
+    "node": ">=22"
+  },
   "dependencies": {
     "axios": "^1.12.2",
-    "commander": "^14.0.1",
     "md5": "^2.3.0",
-    "string-format": "^2.0.0",
-    "uuid": "^9.0.0"
+    "nodemailer": "^8.0.10",
+    "uuid": "^14.0.0"
   }
 }

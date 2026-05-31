@@ -1,166 +1,437 @@
-import axios from 'axios';
-import md5 from 'md5';
-import { v4 } from 'uuid';
+import axios from 'axios'
+import md5 from 'md5'
+import { v4 as uuidv4 } from 'uuid'
 
-
-let ROLE = {
-  Genshin: {
-    game_biz: '',
-    region: '',
-    game_uid: '',
-    nickname: '',
-    level: -1,
-    is_chosen: false,
-    region_name: '',
-    is_official: false
-  },
-  StarRail: {
-    game_biz: '',
-    region: '',
-    game_uid: '',
-    nickname: '',
-    level: -1,
-    is_chosen: false,
-    region_name: '',
-    is_official: false
-  }
-}
-
+/**
+ * 米游社接口主机
+ */
 const WEB_HOST = 'api-takumi.mihoyo.com'
+
+/**
+ * 模拟米游社 App 版本
+ */
 const APP_VERSION = '2.81.1'
 
-const COMMON__HEADERS = {
-  "DS": '',
-  "Cookie": '',
-  "Host": WEB_HOST,
-  "User-Agent": `Mozilla/5.0 (iPhone; CPU iPhone OS 18_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) miHoYoBBS/${APP_VERSION}`,
-  "x-rpc-app_version": APP_VERSION,
-  "x-rpc-client_type": 5,
-  "Accept-Language": "zh-CN,zh-Hans;q=0.9",
-  "Accept": "application/json, text/plain, */*",
-}
-let ROLE_HEADERS = {
-  "Referer": 'https://webstatic.mihoyo.com/',
-  "x-rpc-device_id": v4(),
-  "Origin": "https://webstatic.mihoyo.com",
-  "x-rpc-challenge": 'null',
-  "Accept": "application/json, text/plain, */*",
-  "Accept-Encoding": "gzip, deflate, br",
-};
-let SIGN_HEADERS = {
-  "Referer": "https://act.mihoyo.com/",
-  "x-rpc-device_model": "iPhone14,4",
-  "x-rpc-device_id": v4(),
-  "x-rpc-platform": 1,
-  "x-rpc-device_name": "iPhone",
-  "Origin": "https://act.mihoyo.com",
-  "Sec-Fetch-Site": "same-site",
-  "Connection": "keep-alive",
-  "Content-Type": "application/json;charset=utf-8",
+/**
+ * 设备 ID
+ * 推荐在 GitHub Secrets 中配置 MYS_DEVICE_ID，使其长期固定
+ * 如果没有配置，则每次运行临时生成一个
+ */
+const DEVICE_ID = process.env.MYS_DEVICE_ID || uuidv4()
+
+/**
+ * axios 实例
+ * 设置 timeout 避免接口卡死
+ */
+const $axios = axios.create({
+  timeout: 15000,
+})
+
+/**
+ * 游戏配置
+ */
+const GAME_CONFIG = {
+  Genshin: {
+    name: '原神-米游社',
+    game_biz: 'hk4e_cn',
+    act_id: 'e202311201442471',
+    signgame: 'hk4e',
+    default_region: 'cn_gf01',
+  },
+  StarRail: {
+    name: '星穹铁道-米游社',
+    game_biz: 'hkrpg_cn',
+    act_id: 'e202304121516551',
+    signgame: 'hkrpg',
+    default_region: 'prod_gf_cn',
+  },
+  ZZZ: {
+    name: '绝区零-米游社',
+    game_biz: 'nap_cn',
+    act_id: 'e202406242138391',
+    signgame: 'zzz',
+    default_region: 'prod_gf_cn',
+  },
 }
 
-const $axios = axios.create({})
+/**
+ * 公共请求头
+ */
+const COMMON_HEADERS = {
+  DS: '',
+  Cookie: '',
+  Host: WEB_HOST,
+  'User-Agent': `Mozilla/5.0 (iPhone; CPU iPhone OS 18_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) miHoYoBBS/${APP_VERSION}`,
+  'x-rpc-app_version': APP_VERSION,
+  'x-rpc-client_type': 5,
+  'Accept-Language': 'zh-CN,zh-Hans;q=0.9',
+  Accept: 'application/json, text/plain, */*',
+}
 
-const getCookieConfig = async () => {
-  const MYSCookies = process.env.MYS_COOKIES;
-  if (!MYSCookies) {
-    console.error("Missing required environment variables.");
-    return { Genshin: [], StarRail: [] }
+/**
+ * 查询角色信息时使用的请求头
+ */
+const ROLE_HEADERS = {
+  Referer: 'https://webstatic.mihoyo.com/',
+  'x-rpc-device_id': DEVICE_ID,
+  Origin: 'https://webstatic.mihoyo.com',
+  'x-rpc-challenge': 'null',
+  Accept: 'application/json, text/plain, */*',
+  'Accept-Encoding': 'gzip, deflate, br',
+}
+
+/**
+ * 签到时使用的请求头
+ */
+const SIGN_HEADERS = {
+  Referer: 'https://act.mihoyo.com/',
+  'x-rpc-device_model': 'iPhone14,4',
+  'x-rpc-device_id': DEVICE_ID,
+  'x-rpc-platform': 1,
+  'x-rpc-device_name': 'iPhone',
+  Origin: 'https://act.mihoyo.com',
+  'Sec-Fetch-Site': 'same-site',
+  Connection: 'keep-alive',
+  'Content-Type': 'application/json;charset=utf-8',
+}
+
+/**
+ * 敏感信息脱敏
+ */
+function maskSensitive(text) {
+  return String(text)
+    .replace(/(cookie_token=)[^;,\s]+/gi, '$1***')
+    .replace(/(ltoken=)[^;,\s]+/gi, '$1***')
+    .replace(/(ltuid=)[^;,\s]+/gi, '$1***')
+    .replace(/(stoken=)[^;,\s]+/gi, '$1***')
+    .replace(/(account_id=)\d+/gi, '$1***')
+    .replace(/(login_ticket=)[^;,\s]+/gi, '$1***')
+    .replace(/("Cookie"\s*:\s*")[^"]+/gi, '$1***')
+    .replace(/(Cookie:\s*)[^\n\r]+/gi, '$1***')
+    .replace(/(Authorization:\s*Bearer\s+)[A-Za-z0-9._-]+/gi, '$1***')
+}
+
+/**
+ * UID 打码
+ */
+function maskUid(uid) {
+  const value = String(uid || '')
+  if (value.length <= 4) return '****'
+  return `${value.slice(0, 3)}****${value.slice(-2)}`
+}
+
+/**
+ * 安全格式化 axios 错误
+ * 避免打印完整 err.config，因为其中可能包含 Cookie
+ */
+function formatAxiosError(err) {
+  if (!err) return 'Unknown error'
+
+  const data = err.response?.data
+
+  return maskSensitive(
+    JSON.stringify({
+      status: err.response?.status,
+      retcode: data?.retcode,
+      message: data?.message || err.message || 'Unknown error',
+    })
+  )
+}
+
+/**
+ * 获取游戏配置
+ */
+function getGameConfig(gameKey) {
+  const config = GAME_CONFIG[gameKey]
+  if (!config) {
+    throw new Error(`Unsupported gameKey: ${gameKey}`)
   }
-  const MYSCookieArr = MYSCookies ? MYSCookies.split(',') : []
-  return { Genshin: MYSCookieArr, StarRail: MYSCookieArr }
+  return config
 }
 
-const randomSleep = (min, max) => {
+/**
+ * 解析 Cookie 列表
+ * 支持：
+ * 1. 逗号分隔
+ * 2. 换行分隔
+ */
+function parseCookieList(value) {
+  if (!value) return []
+
+  return value
+    .split(/\r?\n|,/)
+    .map((v) => v.trim())
+    .filter(Boolean)
+}
+
+/**
+ * 读取 MYS_COOKIES
+ */
+function getCookieConfig() {
+  const mysCookies = process.env.MYS_COOKIES
+
+  if (!mysCookies) {
+    console.error('[米游社] Missing required environment variable: MYS_COOKIES')
+    return { Genshin: [], StarRail: [], ZZZ: [] }
+  }
+
+  const cookieList = parseCookieList(mysCookies)
+
+  return {
+    Genshin: cookieList,
+    StarRail: cookieList,
+    ZZZ: cookieList,
+  }
+}
+
+/**
+ * 随机等待，降低请求规律性
+ */
+function randomSleep(min, max) {
   const delay = Math.floor(Math.random() * (max - min + 1)) + min
-  console.log(`Sleeping for ${delay} seconds...`);
+  console.log(`Sleeping for ${delay} seconds...`)
   return new Promise((resolve) => setTimeout(resolve, delay * 1000))
 }
 
+/**
+ * 生成米游社 DS
+ */
 async function getDS() {
-  const s = "yUZ3s0Sna1IrSNfk29Vo6vRapdOyqyhB";
-  const t = Math.floor(Date.now() / 1e3);
-  const r = Math.random().toString(36).slice(-6);
-  const c = `salt=${s}&t=${t}&r=${r}`;
-  return `${t},${r},${md5(c)}`;
+  const salt = 'yUZ3s0Sna1IrSNfk29Vo6vRapdOyqyhB'
+  const t = Math.floor(Date.now() / 1e3)
+  const r = Math.random().toString(36).slice(-6)
+  const c = `salt=${salt}&t=${t}&r=${r}`
+
+  return `${t},${r},${md5(c)}`
 }
 
-const getHeaders = async (Cookie, whichHeader) => {
-  return { ...COMMON__HEADERS, ...whichHeader, Cookie, DS: await getDS() }
+/**
+ * 组合请求头
+ */
+async function getHeaders(cookie, whichHeader) {
+  return {
+    ...COMMON_HEADERS,
+    ...whichHeader,
+    Cookie: cookie,
+    DS: await getDS(),
+  }
 }
 
-const getRole = async (cookie, gameKey) => {
-  const GAME_BIZ = { Genshin: 'hk4e_cn', StarRail: 'hkrpg_cn' }
+/**
+ * 获取账号绑定角色
+ *
+ * 返回结构：
+ * - status: 'ok'      找到对应游戏角色
+ * - status: 'no_role' Cookie 有效，但没有这个游戏的角色
+ * - status: 'failed'  Cookie 失效、接口异常或其他登录失败
+ */
+async function getRole(cookie, gameKey) {
+  const game = getGameConfig(gameKey)
   const headers = await getHeaders(cookie, ROLE_HEADERS)
-  const res = await $axios.request({
-    method: 'GET',
-    headers,
-    url: `https://${WEB_HOST}/binding/api/getUserGameRolesByCookie?game_biz=${GAME_BIZ[gameKey]}`
-  }).catch(err => {
-    console.error('Login error\n' + err)
-  })
-  if (res.data['retcode'] !== 0) {
-    console.info('Account not logged in, please check cookie', JSON.stringify(res.data))
-  }
-  if ((res?.data?.message === 'OK') && res.data.data.list[0]) {
-    ROLE[gameKey] = res.data.data.list[0]
-    console.log(`[${gameKey}] Login successful <${ROLE[gameKey].nickname}(${ROLE[gameKey].game_uid})>: `, JSON.stringify(res.data))
-  } else {
-    ROLE[gameKey] = {
-      game_biz: '',
-      region: '',
-      game_uid: '',
-      nickname: '',
-      level: -1,
-      is_chosen: false,
-      region_name: '',
-      is_official: false
-    }
-    console.log(`[${gameKey}] Login failed <No character found>: `, JSON.stringify(res.data))
-  }
-}
 
-async function Sign_In(cookie, gameKey) {
-  const ACT_ID = { Genshin: 'e202311201442471', StarRail: 'e202304121516551' }
-  const REGION = { Genshin: 'cn_gf01', StarRail: 'prod_gf_cn' }
-  const SIGNGAME = { Genshin: 'hk4e', StarRail: 'hkrpg' }
+  try {
+    const res = await $axios.request({
+      method: 'GET',
+      headers,
+      url: `https://${WEB_HOST}/binding/api/getUserGameRolesByCookie?game_biz=${game.game_biz}`,
+    })
 
-  const headers = await getHeaders(cookie, { ...SIGN_HEADERS, 'x-rpc-signgame': SIGNGAME[gameKey] })
-  const data = {
-    act_id: ACT_ID[gameKey],
-    region: REGION[gameKey],
-    uid: ROLE[gameKey].game_uid,
-    lang: 'zh-cn'
-  }
-  const res = await $axios.request({
-    method: 'POST',
-    headers,
-    data,
-    url: `https://${WEB_HOST}/event/luna/${SIGNGAME[gameKey]}/sign`
-  }).catch(err => {
-    console.error('Sign-in error\n' + err)
-  })
-  console.log(`<${ROLE[gameKey].nickname}(${ROLE[gameKey].game_uid})> Sign-in ${res?.data?.message === 'OK' ? 'successful' : 'failed'}: `, JSON.stringify(res.data))
-}
+    const data = res?.data
 
-const doMYSSign = async (gameKey) => {
-  const CONF = await getCookieConfig()
-  const cookieList = CONF[gameKey]
-  if (cookieList.length) {
-    console.info(`[${gameKey}] Start signing in, total ${cookieList.length} users\n`)
-    for (const cookIndex in cookieList) {
-      const cook = cookieList[cookIndex]
-      if (cook) {
-        console.log(`[${gameKey}] User ${Number(cookIndex) + 1} starts signing in...`)
-        await getRole(cook, gameKey)
-        if (ROLE[gameKey]?.game_uid) {
-          await Sign_In(cook, gameKey)
-        }
-        await randomSleep(3, 9)
+    if (!data) {
+      console.error(`[${game.name}] Login failed: empty response`)
+      return {
+        status: 'failed',
+        role: null,
       }
     }
-    console.info(`[${gameKey}] Sign-in completed\n`)
+
+    if (data.retcode !== 0) {
+      console.error(`[${game.name}] Login failed: retcode=${data.retcode}, message=${data.message}`)
+      return {
+        status: 'failed',
+        role: null,
+      }
+    }
+
+    const role = data.data?.list?.[0]
+
+    if (!role?.game_uid) {
+      console.info(`[${game.name}] No character found, skip this account`)
+      return {
+        status: 'no_role',
+        role: null,
+      }
+    }
+
+    console.log(
+      `[${game.name}] Login successful <${role.nickname}(${maskUid(role.game_uid)})>`
+    )
+
+    return {
+      status: 'ok',
+      role,
+    }
+  } catch (err) {
+    console.error(`[${game.name}] Login error: ${formatAxiosError(err)}`)
+    return {
+      status: 'failed',
+      role: null,
+    }
+  }
+}
+
+/**
+ * 执行签到
+ */
+async function signIn(cookie, gameKey, role) {
+  const game = getGameConfig(gameKey)
+
+  if (!role?.game_uid) {
+    console.error(`[${game.name}] Sign-in skipped: invalid role`)
+    return false
+  }
+
+  const headers = await getHeaders(cookie, {
+    ...SIGN_HEADERS,
+    'x-rpc-signgame': game.signgame,
+  })
+
+  const data = {
+    act_id: game.act_id,
+    region: role.region || game.default_region,
+    uid: role.game_uid,
+    lang: 'zh-cn',
+  }
+
+  try {
+    const res = await $axios.request({
+      method: 'POST',
+      headers,
+      data,
+      url: `https://${WEB_HOST}/event/luna/${game.signgame}/sign`,
+    })
+
+    const body = res?.data
+
+    if (!body) {
+      console.error(`[${game.name}] Sign-in failed: empty response`)
+      return false
+    }
+
+    const message = body.message || 'Unknown'
+    const retcode = body.retcode
+
+    if (
+      message === 'OK' ||
+      retcode === 0 ||
+      /已签到|已经签到|签到过|今日已签到|already/i.test(message)
+    ) {
+      console.log(
+        `[${game.name}] <${role.nickname}(${maskUid(role.game_uid)})> Sign-in successful`
+      )
+      return true
+    }
+
+    console.error(
+      `[${game.name}] <${role.nickname}(${maskUid(role.game_uid)})> Sign-in failed: retcode=${retcode}, message=${message}`
+    )
+    return false
+  } catch (err) {
+    console.error(`[${game.name}] Sign-in error: ${formatAxiosError(err)}`)
+    return false
+  }
+}
+
+/**
+ * 米游社签到入口
+ *
+ * 新逻辑：
+ * - 没有 Cookie：跳过
+ * - Cookie 有效但没有对应游戏角色：跳过该账号，不算失败
+ * - 某个游戏所有账号都没有角色：该游戏整体 skipped=true
+ * - Cookie 失效 / 接口异常 / 签到失败：算失败
+ */
+async function doMYSSign(gameKey) {
+  const game = getGameConfig(gameKey)
+  const CONF = getCookieConfig()
+  const cookieList = CONF[gameKey] || []
+
+  if (!cookieList.length) {
+    console.info(`[${game.name}] Skip: no cookie configured`)
+    return {
+      gameKey,
+      total: 0,
+      failed: 0,
+      skipped: true,
+      success: true,
+    }
+  }
+
+  console.info(`[${game.name}] Start signing in, total ${cookieList.length} cookies\n`)
+
+  let signedTotal = 0
+  let failed = 0
+  let noRole = 0
+
+  for (const [cookieIndex, cookie] of cookieList.entries()) {
+    if (!cookie) continue
+
+    console.log(`[${game.name}] User ${cookieIndex + 1} starts signing in...`)
+
+    const roleResult = await getRole(cookie, gameKey)
+
+    if (roleResult.status === 'no_role') {
+      noRole++
+      await randomSleep(1, 3)
+      continue
+    }
+
+    if (roleResult.status === 'failed') {
+      failed++
+      await randomSleep(3, 9)
+      continue
+    }
+
+    const role = roleResult.role
+
+    if (role?.game_uid) {
+      signedTotal++
+      const ok = await signIn(cookie, gameKey, role)
+      if (!ok) failed++
+    } else {
+      failed++
+    }
+
+    await randomSleep(3, 9)
+  }
+
+  if (signedTotal === 0 && failed === 0) {
+    console.info(`[${game.name}] No matching characters found in all cookies, skipped\n`)
+
+    return {
+      gameKey,
+      total: 0,
+      failed: 0,
+      skipped: true,
+      success: true,
+      noRole,
+    }
+  }
+
+  console.info(
+    `[${game.name}] Sign-in completed, signed users: ${signedTotal}, failed: ${failed}, no role: ${noRole}\n`
+  )
+
+  return {
+    gameKey,
+    total: signedTotal,
+    failed,
+    skipped: false,
+    success: failed === 0,
+    noRole,
   }
 }
 
 export { doMYSSign }
+

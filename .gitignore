@@ -1,21 +1,97 @@
-# dependencies
-node_modules
+# ==============================
+# Node.js dependencies
+# ==============================
 
-# lock files
+# npm/yarn/pnpm 安装的依赖目录
+node_modules/
+
+
+# ==============================
+# Package manager lock files
+# ==============================
+
+# 注意：
+# 使用 npm 时，package-lock.json 应该提交到仓库
+# 因为 GitHub Actions 中使用 npm ci --ignore-scripts
+# 所以这里不要忽略 package-lock.json
+
+# 如果你不使用 Yarn，可以忽略 yarn.lock
 yarn.lock
-package-lock.json
 
-# log files
+# 如果你不使用 pnpm，可以忽略 pnpm-lock.yaml
+pnpm-lock.yaml
+
+
+# ==============================
+# Log files
+# ==============================
+
+# 通用日志文件
+*.log
+
+# npm 日志
+npm-debug.log*
+
+# yarn 日志
+yarn-debug.log*
+yarn-error.log*
+
+# pnpm 日志
+pnpm-debug.log*
+
+# 其他 debug/error 日志
 *-debug.log
 *-error.log
 
-# compile
-dist
 
-# local env files
+# ==============================
+# Build output
+# ==============================
+
+# 常见构建输出目录
+dist/
+build/
+
+
+# ==============================
+# Local environment files
+# ==============================
+
+# 本地环境变量文件，可能包含 Cookie、Token、SMTP 密码等敏感信息
+.env
 .env.local
 .env.*.local
-.env
 
-# misc
+
+# ==============================
+# GitHub Actions runtime output
+# ==============================
+
+# Actions 或本地运行时生成的原始日志
+# 可能包含敏感内容，不应提交
+output.log
+
+# Actions 生成的邮件 HTML 文件
+summary.html
+
+
+# ==============================
+# System files
+# ==============================
+
+# macOS 系统文件
 .DS_Store
+
+# Windows 缩略图缓存
+Thumbs.db
+
+
+# ==============================
+# Editor / IDE files
+# ==============================
+
+# VS Code 配置
+.vscode/
+
+# JetBrains 系列 IDE 配置
+.idea/
