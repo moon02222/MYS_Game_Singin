@@ -1,29 +1,156 @@
 name: MiHoYo Sign-In Script
 
+# 触发条件：每天定时执行 + 支持手动触发
 on:
   schedule:
-    - cron: '20 23 * * *' # 每天UTC 23:20, 对应北京时间7:20，实际运行时间有偏差。
-  workflow_dispatch: # 允许手动触发
+    - cron: '0 20 * * *'   # UTC 20:00，对应北京时间 04:00
+  workflow_dispatch:       # 允许手动触发
+
+# 最小权限原则：只允许读取仓库内容
+permissions:
+  contents: read
 
 jobs:
   build-and-run:
     runs-on: ubuntu-latest
 
+    # job 级别环境变量
+    # 注意：SMTP_PASSWORD 不放在这里，只在发送邮件步骤中注入
+    env:
+      MAIL_TO: ${{ secrets.MAIL_TO }}
+      SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+      SMTP_PORT: ${{ secrets.SMTP_PORT }}
+      SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+      HAS_SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD != '' }}
+
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v3
+      # 拉取仓库代码
+      - name: Checkout repository
+        uses: actions/checkout@v5
 
-    - name: Set up Node.js
-      uses: actions/setup-node@v3
-      with:
-        node-version: '18'
+      # 安装 Node.js
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
 
-    - name: Install dependencies
-      run: npm install
+      # 安装依赖
+      # 注意：npm ci 需要仓库中存在 package-lock.json
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
 
-    - name: Run main.js
-      env:
-        MYS_COOKIES: ${{ secrets.MYS_COOKIES }}
-        GENSHIN_TOKENS: ${{ secrets.GENSHIN_TOKENS }}
-        STARRAIL_TOKENS: ${{ secrets.STARRAIL_TOKENS }}
-      run: node main.js
+      # 将非空敏感变量加入 GitHub Actions mask，降低日志泄露风险
+      # SMTP_PASSWORD 不在这里处理，只在发送邮件步骤中使用
+      - name: Mask secrets
+        env:
+          MYS_COOKIES: ${{ secrets.MYS_COOKIES }}
+          GENSHIN_TOKENS: ${{ secrets.GENSHIN_TOKENS }}
+          STARRAIL_TOKENS: ${{ secrets.STARRAIL_TOKENS }}
+          MYS_DEVICE_ID: ${{ secrets.MYS_DEVICE_ID }}
+          MIHOYO_DEVICE_ID: ${{ secrets.MIHOYO_DEVICE_ID }}
+          MIHOYO_CLOUD_DEVICE_ID: ${{ secrets.MIHOYO_CLOUD_DEVICE_ID }}
+        run: |
+          if [ -n "$MYS_COOKIES" ]; then
+            echo "::add-mask::$MYS_COOKIES"
+          fi
+
+          if [ -n "$GENSHIN_TOKENS" ]; then
+            echo "::add-mask::$GENSHIN_TOKENS"
+          fi
+
+          if [ -n "$STARRAIL_TOKENS" ]; then
+            echo "::add-mask::$STARRAIL_TOKENS"
+          fi
+
+          if [ -n "$MYS_DEVICE_ID" ]; then
+            echo "::add-mask::$MYS_DEVICE_ID"
+          fi
+
+          if [ -n "$MIHOYO_DEVICE_ID" ]; then
+            echo "::add-mask::$MIHOYO_DEVICE_ID"
+          fi
+
+          if [ -n "$MIHOYO_CLOUD_DEVICE_ID" ]; then
+            echo "::add-mask::$MIHOYO_CLOUD_DEVICE_ID"
+          fi
+
+      # 执行主脚本，并将所有输出写入 output.log
+      - name: Run main.js
+        env:
+          MYS_COOKIES: ${{ secrets.MYS_COOKIES }}
+          GENSHIN_TOKENS: ${{ secrets.GENSHIN_TOKENS }}
+          STARRAIL_TOKENS: ${{ secrets.STARRAIL_TOKENS }}
+          MYS_DEVICE_ID: ${{ secrets.MYS_DEVICE_ID }}
+          MIHOYO_DEVICE_ID: ${{ secrets.MIHOYO_DEVICE_ID }}
+          MIHOYO_CLOUD_DEVICE_ID: ${{ secrets.MIHOYO_CLOUD_DEVICE_ID }}
+        run: node main.js > output.log 2>&1
+
+      # 无论签到成功还是失败，都生成邮件 HTML 总结
+      # 这里只传入是否配置 Token 的布尔值，不传入真实 Cookie / Token / SMTP 密码
+      - name: Generate Email Summary
+        if: always()
+        env:
+          HAS_GENSHIN_TOKENS: ${{ secrets.GENSHIN_TOKENS != '' }}
+          HAS_STARRAIL_TOKENS: ${{ secrets.STARRAIL_TOKENS != '' }}
+        run: node scripts/generate-summary.js
+
+      # 使用 nodemailer 发送邮件通知
+      # SMTP_PASSWORD 只在此步骤中注入，避免暴露给前面的签到和构建步骤
+      - name: Send Email Notification
+        if: always() && env.MAIL_TO != '' && env.SMTP_SERVER != '' && env.SMTP_PORT != '' && env.SMTP_USERNAME != '' && env.HAS_SMTP_PASSWORD == 'true'
+        env:
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          JOB_STATUS: ${{ job.status }}
+          REPOSITORY_NAME: ${{ github.repository }}
+        run: |
+          node --input-type=module <<'EOF'
+          import fs from 'node:fs'
+          import nodemailer from 'nodemailer'
+
+          function required(name) {
+            const value = process.env[name]
+
+            if (!value) {
+              throw new Error(`Missing required environment variable: ${name}`)
+            }
+
+            return value
+          }
+
+          try {
+            const smtpServer = required('SMTP_SERVER')
+            const smtpPort = required('SMTP_PORT')
+            const smtpUsername = required('SMTP_USERNAME')
+            const smtpPassword = required('SMTP_PASSWORD')
+            const mailTo = required('MAIL_TO')
+
+            const repositoryName = process.env.REPOSITORY_NAME || 'mihoyo-sign-in'
+            const jobStatus = process.env.JOB_STATUS || 'unknown'
+
+            const html = fs.existsSync('summary.html')
+              ? fs.readFileSync('summary.html', 'utf8')
+              : '<p>summary.html not found</p>'
+
+            const transporter = nodemailer.createTransport({
+              host: smtpServer,
+              port: Number(smtpPort),
+              secure: Number(smtpPort) === 465,
+              auth: {
+                user: smtpUsername,
+                pass: smtpPassword,
+              },
+            })
+
+            await transporter.sendMail({
+              from: smtpUsername,
+              to: mailTo,
+              subject: `米游社签到结果 - ${repositoryName} - ${jobStatus}`,
+              html,
+            })
+
+            console.log('[Mail] Email sent successfully')
+          } catch (error) {
+            console.error(`[Mail] Send email failed: ${error?.message || String(error)}`)
+            process.exitCode = 1
+          }
+          EOF
