@@ -3,7 +3,7 @@
  *
  * 该脚本只负责读取 output.log 中的 Summary 行并生成 summary.html。
  * 不读取 Cookie、Token、SMTP 密码，也不负责发送邮件。
- * 邮件发送仍由 GitHub Actions 中的 dawidd6/action-send-mail 完成。
+ * 邮件发送由 GitHub Actions 中的 nodemailer 脚本完成。
  */
 import fs from 'node:fs'
 
