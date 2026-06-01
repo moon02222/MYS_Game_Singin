@@ -1,6 +1,13 @@
 import axios from 'axios'
 import md5 from 'md5'
 import { v4 as uuidv4 } from 'uuid'
+import {
+  randomSleep,
+  parseCookieList,
+  maskSensitive,
+  maskUid,
+  formatAxiosError,
+} from '../utils/index.js'
 
 /**
  * 米游社接口主机
@@ -96,49 +103,6 @@ const SIGN_HEADERS = {
 }
 
 /**
- * 敏感信息脱敏
- */
-function maskSensitive(text) {
-  return String(text)
-    .replace(/(cookie_token=)[^;,\s]+/gi, '$1***')
-    .replace(/(ltoken=)[^;,\s]+/gi, '$1***')
-    .replace(/(ltuid=)[^;,\s]+/gi, '$1***')
-    .replace(/(stoken=)[^;,\s]+/gi, '$1***')
-    .replace(/(account_id=)\d+/gi, '$1***')
-    .replace(/(login_ticket=)[^;,\s]+/gi, '$1***')
-    .replace(/("Cookie"\s*:\s*")[^"]+/gi, '$1***')
-    .replace(/(Cookie:\s*)[^\n\r]+/gi, '$1***')
-    .replace(/(Authorization:\s*Bearer\s+)[A-Za-z0-9._-]+/gi, '$1***')
-}
-
-/**
- * UID 打码
- */
-function maskUid(uid) {
-  const value = String(uid || '')
-  if (value.length <= 4) return '****'
-  return `${value.slice(0, 3)}****${value.slice(-2)}`
-}
-
-/**
- * 安全格式化 axios 错误
- * 避免打印完整 err.config，因为其中可能包含 Cookie
- */
-function formatAxiosError(err) {
-  if (!err) return 'Unknown error'
-
-  const data = err.response?.data
-
-  return maskSensitive(
-    JSON.stringify({
-      status: err.response?.status,
-      retcode: data?.retcode,
-      message: data?.message || err.message || 'Unknown error',
-    })
-  )
-}
-
-/**
  * 获取游戏配置
  */
 function getGameConfig(gameKey) {
@@ -147,21 +111,6 @@ function getGameConfig(gameKey) {
     throw new Error(`Unsupported gameKey: ${gameKey}`)
   }
   return config
-}
-
-/**
- * 解析 Cookie 列表
- * 支持：
- * 1. 逗号分隔
- * 2. 换行分隔
- */
-function parseCookieList(value) {
-  if (!value) return []
-
-  return value
-    .split(/\r?\n|,/)
-    .map((v) => v.trim())
-    .filter(Boolean)
 }
 
 /**
@@ -182,15 +131,6 @@ function getCookieConfig() {
     StarRail: cookieList,
     ZZZ: cookieList,
   }
-}
-
-/**
- * 随机等待，降低请求规律性
- */
-function randomSleep(min, max) {
-  const delay = Math.floor(Math.random() * (max - min + 1)) + min
-  console.log(`Sleeping for ${delay} seconds...`)
-  return new Promise((resolve) => setTimeout(resolve, delay * 1000))
 }
 
 /**
@@ -215,6 +155,13 @@ async function getHeaders(cookie, whichHeader) {
     Cookie: cookie,
     DS: await getDS(),
   }
+}
+
+/**
+ * 随机等待，降低请求规律性
+ */
+function sleep(min, max) {
+  return randomSleep(min, max)
 }
 
 /**
@@ -383,13 +330,13 @@ async function doMYSSign(gameKey) {
 
     if (roleResult.status === 'no_role') {
       noRole++
-      await randomSleep(1, 3)
+      await sleep(1, 3)
       continue
     }
 
     if (roleResult.status === 'failed') {
       failed++
-      await randomSleep(3, 9)
+      await sleep(3, 9)
       continue
     }
 
@@ -403,7 +350,7 @@ async function doMYSSign(gameKey) {
       failed++
     }
 
-    await randomSleep(3, 9)
+    await sleep(3, 9)
   }
 
   if (signedTotal === 0 && failed === 0) {
@@ -434,4 +381,3 @@ async function doMYSSign(gameKey) {
 }
 
 export { doMYSSign }
-
