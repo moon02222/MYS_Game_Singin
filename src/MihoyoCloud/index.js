@@ -1,5 +1,11 @@
 import axios from 'axios'
 import { v4 as uuidv4 } from 'uuid'
+import {
+  randomSleep,
+  parseTokenList,
+  maskSensitive,
+  formatAxiosError,
+} from '../utils/index.js'
 
 /**
  * 云游戏设备 ID
@@ -16,56 +22,6 @@ const DEVICE_ID =
 const $axios = axios.create({
   timeout: 15000,
 })
-
-/**
- * 敏感信息脱敏
- */
-function maskSensitive(text) {
-  return String(text)
-    .replace(/(x-rpc-combo_token["']?\s*[:=]\s*["']?)[^"',\s}]+/gi, '$1***')
-    .replace(/(combo_token=)[^;&\s]+/gi, '$1***')
-    .replace(/(token["']?\s*[:=]\s*["']?)[^"',\s}]+/gi, '$1***')
-    .replace(/(Authorization["']?\s*[:=]\s*["']?Bearer\s+)[^"',\s}]+/gi, '$1***')
-}
-
-/**
- * 安全格式化 axios 错误
- */
-function formatAxiosError(err) {
-  if (!err) return 'Unknown error'
-
-  const data = err.response?.data
-
-  return maskSensitive(
-    JSON.stringify({
-      status: err.response?.status,
-      retcode: data?.retcode,
-      message: data?.message || err.message || 'Unknown error',
-    })
-  )
-}
-
-/**
- * 随机等待
- */
-function randomSleep(min, max) {
-  const delay = Math.floor(Math.random() * (max - min + 1)) + min
-  console.log(`Sleeping for ${delay} seconds...`)
-  return new Promise((resolve) => setTimeout(resolve, delay * 1000))
-}
-
-/**
- * 解析 Token 列表
- * 支持逗号或换行分隔
- */
-function parseTokenList(value) {
-  if (!value) return []
-
-  return value
-    .split(/\r?\n|,/)
-    .map((v) => v.trim())
-    .filter(Boolean)
-}
 
 /**
  * 读取云游戏 Token 配置

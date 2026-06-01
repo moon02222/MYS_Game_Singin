@@ -1,9 +1,9 @@
 /**
  * 生成邮件 HTML 总结
  *
- * 该脚本只负责读取 output.log 中的 Summary 行并生成 summary.html。
+ * 该脚本只负责读取 output.log 中的 Summary / Reward 行并生成 summary.html。
  * 不读取 Cookie、Token、SMTP 密码，也不负责发送邮件。
- * 邮件发送仍由 GitHub Actions 中的 dawidd6/action-send-mail 完成。
+ * 邮件发送由 GitHub Actions 中的 nodemailer 脚本完成。
  */
 import fs from 'node:fs'
 
@@ -103,6 +103,29 @@ function extractSummaryLine(output, label) {
 }
 
 /**
+ * 从 output.log 中提取某个任务的 Reward 行
+ *
+ * 示例：
+ * [原神-米游社] Reward: {"user":1,"uid":"100****01","day":12,"name":"摩拉","cnt":5000,"icon":"https://xxx.png"}
+ */
+function extractRewardLines(output, label) {
+  const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const regex = new RegExp(`\\[${escapedLabel}\\] Reward:\\s*(\\{.*\\})`, 'g')
+
+  const rewards = []
+
+  for (const match of output.matchAll(regex)) {
+    try {
+      rewards.push(JSON.parse(match[1]))
+    } catch {
+      // 忽略解析失败的奖励日志
+    }
+  }
+
+  return rewards
+}
+
+/**
  * 解析 Summary 行
  *
  * 示例：
@@ -153,18 +176,86 @@ function renderStatus(summary) {
 }
 
 /**
+ * 渲染累计天数
+ */
+function renderDayCell(rewards = []) {
+  if (!rewards.length) {
+    return '—'
+  }
+
+  return rewards
+    .map((reward) => {
+      const userPrefix = rewards.length > 1 && reward.user ? `账号${reward.user}：` : ''
+      const day = reward.day ? `${reward.day}天` : '未知'
+
+      return `
+        <div style="margin: 2px 0; white-space: nowrap;">
+          ${escapeHtml(userPrefix)}${escapeHtml(day)}
+        </div>
+      `
+    })
+    .join('')
+}
+
+/**
+ * 渲染今日奖励
+ */
+function renderRewardCell(rewards = []) {
+  if (!rewards.length) {
+    return '—'
+  }
+
+  return rewards
+    .map((reward) => {
+      const userPrefix = rewards.length > 1 && reward.user ? `账号${reward.user}` : ''
+      const name = reward.name || '未知奖励'
+      const cnt = reward.cnt ? `×${reward.cnt}` : ''
+
+      const icon = reward.icon
+        ? `
+          <img
+            src="${escapeHtml(reward.icon)}"
+            alt="${escapeHtml(name)}"
+            style="width: 30px; height: 30px; display: block; margin: 0 auto 3px auto;"
+          >
+        `
+        : ''
+
+      return `
+        <div style="display: inline-block; min-width: 48px; margin: 2px 4px; text-align: center; vertical-align: top;">
+          ${userPrefix ? `<div style="font-size: 10px; line-height: 1.2; color: #666;">${escapeHtml(userPrefix)}</div>` : ''}
+          ${icon}
+          <div style="font-size: 11px; line-height: 1.25; word-break: keep-all;">
+            ${escapeHtml(name)}
+          </div>
+          <div style="font-size: 11px; line-height: 1.25; color: #555;">
+            ${escapeHtml(cnt)}
+          </div>
+        </div>
+      `
+    })
+    .join('')
+}
+
+/**
  * 生成单行 HTML
  */
-function renderRow(title, summary) {
+function renderRow(title, summary, rewards = []) {
   const status = renderStatus(summary)
 
   return `
     <tr>
-      <td style="padding: 12px; background-color: #f8f9fa; text-align: center;">
+      <td style="padding: 7px 5px; background-color: #f8f9fa; text-align: center; font-size: 12px;">
         ${escapeHtml(title)}
       </td>
-      <td style="padding: 12px; background-color: #f8f9fa; text-align: center; font-size: 16px; font-weight: bold;">
+      <td style="padding: 7px 5px; background-color: #f8f9fa; text-align: center; font-size: 12px; font-weight: bold; white-space: nowrap;">
         ${escapeHtml(status)}
+      </td>
+      <td style="padding: 7px 5px; background-color: #f8f9fa; text-align: center; font-size: 12px;">
+        ${renderDayCell(rewards)}
+      </td>
+      <td style="padding: 7px 5px; background-color: #f8f9fa; text-align: center; font-size: 12px;">
+        ${renderRewardCell(rewards)}
       </td>
     </tr>`
 }
@@ -182,11 +273,13 @@ function buildRows(output, tasks) {
     .map((task) => {
       const line = extractSummaryLine(output, task.label)
       const summary = parseSummaryLine(line)
+      const rewards = extractRewardLines(output, task.label)
 
       return {
         title: task.title,
         label: task.label,
         summary,
+        rewards,
       }
     })
     .filter((item) => !item.summary?.skipped)
@@ -200,15 +293,22 @@ function renderSection({ title, color, rows }) {
     return ''
   }
 
-  const body = rows.map((row) => renderRow(row.title, row.summary)).join('\n')
+  const body = rows
+    .map((row) => renderRow(row.title, row.summary, row.rewards))
+    .join('\n')
 
   return `
-  <h3 style="color: ${color}; text-align: center; margin-top: 25px;">${escapeHtml(title)}</h3>
-  <table border="1" cellpadding="12" cellspacing="0" style="border-collapse: collapse; width: 100%; border: 2px solid ${color}; margin: 0 auto;">
+  <h3 style="color: ${color}; text-align: center; margin-top: 18px; margin-bottom: 8px; font-size: 16px;">
+    ${escapeHtml(title)}
+  </h3>
+
+  <table border="1" cellpadding="0" cellspacing="0" style="border-collapse: collapse; width: 100%; border: 1px solid ${color}; table-layout: fixed; margin: 0 auto;">
     <thead>
       <tr style="background-color: ${color}; color: white;">
-        <th style="padding: 12px; text-align: center; width: 50%;">游戏</th>
-        <th style="padding: 12px; text-align: center; width: 50%;">签到结果</th>
+        <th style="padding: 7px 4px; text-align: center; width: 20%; font-size: 12px;">游戏</th>
+        <th style="padding: 7px 4px; text-align: center; width: 22%; font-size: 12px;">签到结果</th>
+        <th style="padding: 7px 4px; text-align: center; width: 22%; font-size: 12px;">累计天数</th>
+        <th style="padding: 7px 4px; text-align: center; width: 36%; font-size: 12px;">今日奖励</th>
       </tr>
     </thead>
     <tbody>
@@ -237,7 +337,7 @@ function renderHtml({ execTime, mysRows, cloudRows }) {
   const emptyMessage =
     sections.length === 0
       ? `
-  <div style="padding: 18px; background-color: #f8f9fa; border: 1px solid #ddd; text-align: center; margin-top: 20px;">
+  <div style="padding: 14px; background-color: #f8f9fa; border: 1px solid #ddd; text-align: center; margin-top: 16px; font-size: 13px;">
     本次没有可显示的签到任务。
   </div>`
       : ''
@@ -248,15 +348,24 @@ function renderHtml({ execTime, mysRows, cloudRows }) {
   <meta charset="UTF-8">
   <title>米游社签到结果总结</title>
 </head>
-<body>
-  <h2 style="color: #4a90e2; text-align: center;">📊 米游社签到结果总结</h2>
-  <p style="text-align: center;"><strong>🕒 执行时间：</strong> ${escapeHtml(execTime)}</p>
+<body style="margin: 0; padding: 12px; font-family: Arial, Helvetica, sans-serif; color: #333;">
+  <div style="max-width: 680px; margin: 0 auto;">
+    <h2 style="color: #4a90e2; text-align: center; font-size: 18px; margin: 8px 0 10px;">
+      📊 米游社签到结果总结
+    </h2>
 
-  ${sections.join('\n')}
+    <p style="text-align: center; font-size: 12px; margin: 0 0 12px;">
+      <strong>🕒 执行时间：</strong> ${escapeHtml(execTime)}
+    </p>
 
-  ${emptyMessage}
+    ${sections.join('\n')}
 
-  <p style="text-align: center; margin-top: 20px;"><small>签到完成 · 感谢使用</small></p>
+    ${emptyMessage}
+
+    <p style="text-align: center; margin-top: 16px; font-size: 11px; color: #777;">
+      签到完成 · 感谢使用
+    </p>
+  </div>
 </body>
 </html>
 `

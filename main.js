@@ -1,21 +1,6 @@
 import { doMYSSign } from './src/MYS/index.js'
 import { doCloudSign } from './src/MihoyoCloud/index.js'
-
-/**
- * 对日志中的敏感信息进行脱敏
- */
-function maskSensitive(text) {
-  return String(text)
-    .replace(/(cookie_token=)[^;,\s]+/gi, '$1***')
-    .replace(/(ltoken=)[^;,\s]+/gi, '$1***')
-    .replace(/(ltuid=)[^;,\s]+/gi, '$1***')
-    .replace(/(stoken=)[^;,\s]+/gi, '$1***')
-    .replace(/(account_id=)\d+/gi, '$1***')
-    .replace(/(login_ticket=)[^;,\s]+/gi, '$1***')
-    .replace(/("Cookie"\s*:\s*")[^"]+/gi, '$1***')
-    .replace(/(Cookie:\s*)[^\n\r]+/gi, '$1***')
-    .replace(/(Authorization:\s*Bearer\s+)[A-Za-z0-9._-]+/gi, '$1***')
-}
+import { maskSensitive } from './src/utils/index.js'
 
 /**
  * 标准化任务返回值
