@@ -207,7 +207,7 @@ function renderRewardCell(rewards = []) {
 
   return rewards
     .map((reward) => {
-      const userPrefix = rewards.length > 1 && reward.user ? `账号${reward.user}：` : ''
+      const userPrefix = rewards.length > 1 && reward.user ? `账号${reward.user}` : ''
       const name = reward.name || '未知奖励'
       const cnt = reward.cnt ? `×${reward.cnt}` : ''
 
@@ -216,14 +216,21 @@ function renderRewardCell(rewards = []) {
           <img
             src="${escapeHtml(reward.icon)}"
             alt="${escapeHtml(name)}"
-            style="width: 28px; height: 28px; vertical-align: middle; margin-right: 4px;"
+            style="width: 30px; height: 30px; display: block; margin: 0 auto 3px auto;"
           >
         `
         : ''
 
       return `
-        <div style="margin: 2px 0; white-space: nowrap;">
-          ${escapeHtml(userPrefix)}${icon}<span>${escapeHtml(name)} ${escapeHtml(cnt)}</span>
+        <div style="display: inline-block; min-width: 48px; margin: 2px 4px; text-align: center; vertical-align: top;">
+          ${userPrefix ? `<div style="font-size: 10px; line-height: 1.2; color: #666;">${escapeHtml(userPrefix)}</div>` : ''}
+          ${icon}
+          <div style="font-size: 11px; line-height: 1.25; word-break: keep-all;">
+            ${escapeHtml(name)}
+          </div>
+          <div style="font-size: 11px; line-height: 1.25; color: #555;">
+            ${escapeHtml(cnt)}
+          </div>
         </div>
       `
     })
