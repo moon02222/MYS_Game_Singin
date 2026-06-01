@@ -4,7 +4,6 @@ import { v4 as uuidv4 } from 'uuid'
 import {
   randomSleep,
   parseCookieList,
-  maskSensitive,
   maskUid,
   formatAxiosError,
 } from '../utils/index.js'
@@ -107,9 +106,11 @@ const SIGN_HEADERS = {
  */
 function getGameConfig(gameKey) {
   const config = GAME_CONFIG[gameKey]
+
   if (!config) {
     throw new Error(`Unsupported gameKey: ${gameKey}`)
   }
+
   return config
 }
 
@@ -120,7 +121,7 @@ function getCookieConfig() {
   const mysCookies = process.env.MYS_COOKIES
 
   if (!mysCookies) {
-    console.error('[米游社] Missing required environment variable: MYS_COOKIES')
+    console.info('[米游社] No MYS_COOKIES configured, skip MYS tasks.')
     return { Genshin: [], StarRail: [], ZZZ: [] }
   }
 
@@ -155,13 +156,6 @@ async function getHeaders(cookie, whichHeader) {
     Cookie: cookie,
     DS: await getDS(),
   }
-}
-
-/**
- * 随机等待，降低请求规律性
- */
-function sleep(min, max) {
-  return randomSleep(min, max)
 }
 
 /**
@@ -283,11 +277,101 @@ async function signIn(cookie, gameKey, role) {
     console.error(
       `[${game.name}] <${role.nickname}(${maskUid(role.game_uid)})> Sign-in failed: retcode=${retcode}, message=${message}`
     )
+
     return false
   } catch (err) {
     console.error(`[${game.name}] Sign-in error: ${formatAxiosError(err)}`)
     return false
   }
+}
+
+/**
+ * 查询当前累计签到天数和今日奖励
+ */
+async function getSignReward(cookie, gameKey, role) {
+  const game = getGameConfig(gameKey)
+
+  if (!role?.game_uid) {
+    return null
+  }
+
+  const headers = await getHeaders(cookie, {
+    ...SIGN_HEADERS,
+    'x-rpc-signgame': game.signgame,
+  })
+
+  const query = new URLSearchParams({
+    act_id: game.act_id,
+    region: role.region || game.default_region,
+    uid: role.game_uid,
+    lang: 'zh-cn',
+  }).toString()
+
+  try {
+    const [infoRes, homeRes] = await Promise.all([
+      $axios.request({
+        method: 'GET',
+        headers,
+        url: `https://${WEB_HOST}/event/luna/${game.signgame}/info?${query}`,
+      }),
+      $axios.request({
+        method: 'GET',
+        headers,
+        url: `https://${WEB_HOST}/event/luna/${game.signgame}/home?${query}`,
+      }),
+    ])
+
+    const infoData = infoRes?.data
+    const homeData = homeRes?.data
+
+    if (infoData?.retcode !== 0 || homeData?.retcode !== 0) {
+      console.error(
+        `[${game.name}] Get reward failed: retcode=${infoData?.retcode ?? homeData?.retcode}, message=${infoData?.message ?? homeData?.message}`
+      )
+      return null
+    }
+
+    const totalSignDay = Number(infoData.data?.total_sign_day ?? 0)
+    const awards = homeData.data?.awards || []
+
+    if (!totalSignDay || !awards.length) {
+      return null
+    }
+
+    const award = awards[totalSignDay - 1]
+
+    if (!award) {
+      return null
+    }
+
+    return {
+      day: totalSignDay,
+      name: award.name || '',
+      cnt: award.cnt ?? '',
+      icon: award.icon || '',
+    }
+  } catch (err) {
+    console.error(`[${game.name}] Get reward error: ${formatAxiosError(err)}`)
+    return null
+  }
+}
+
+/**
+ * 输出奖励日志，供邮件摘要解析
+ */
+function logReward(gameName, cookieIndex, role, reward) {
+  if (!reward) return
+
+  console.log(
+    `[${gameName}] Reward: ${JSON.stringify({
+      user: cookieIndex + 1,
+      uid: maskUid(role.game_uid),
+      day: reward.day,
+      name: reward.name,
+      cnt: reward.cnt,
+      icon: reward.icon,
+    })}`
+  )
 }
 
 /**
@@ -306,6 +390,7 @@ async function doMYSSign(gameKey) {
 
   if (!cookieList.length) {
     console.info(`[${game.name}] Skip: no cookie configured`)
+
     return {
       gameKey,
       total: 0,
@@ -330,13 +415,13 @@ async function doMYSSign(gameKey) {
 
     if (roleResult.status === 'no_role') {
       noRole++
-      await sleep(1, 3)
+      await randomSleep(1, 3)
       continue
     }
 
     if (roleResult.status === 'failed') {
       failed++
-      await sleep(3, 9)
+      await randomSleep(3, 9)
       continue
     }
 
@@ -344,13 +429,20 @@ async function doMYSSign(gameKey) {
 
     if (role?.game_uid) {
       signedTotal++
+
       const ok = await signIn(cookie, gameKey, role)
-      if (!ok) failed++
+
+      if (ok) {
+        const reward = await getSignReward(cookie, gameKey, role)
+        logReward(game.name, cookieIndex, role, reward)
+      } else {
+        failed++
+      }
     } else {
       failed++
     }
 
-    await sleep(3, 9)
+    await randomSleep(3, 9)
   }
 
   if (signedTotal === 0 && failed === 0) {
