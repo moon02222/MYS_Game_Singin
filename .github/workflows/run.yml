@@ -92,7 +92,7 @@ jobs:
         env:
           HAS_GENSHIN_TOKENS: ${{ secrets.GENSHIN_TOKENS != '' }}
           HAS_STARRAIL_TOKENS: ${{ secrets.STARRAIL_TOKENS != '' }}
-        run: node scripts/generate-summary.js
+        run: node scripts/summary/index.js
 
       # 使用 nodemailer 发送邮件通知
       # SMTP_PASSWORD 只在此步骤中注入，避免暴露给前面的签到和构建步骤
