@@ -7,6 +7,13 @@ import {
   maskUid,
   formatAxiosError,
 } from '../utils/index.js'
+import {
+  getCurrentActId,
+  fetchLatestActId,
+} from './actId.js'
+import {
+  isActIdInvalid,
+} from './actIdInvalid.js'
 
 /**
  * 米游社接口主机
@@ -35,6 +42,15 @@ const $axios = axios.create({
 
 /**
  * 游戏配置
+ *
+ * act_id:
+ * - 默认使用这里配置的固定 act_id
+ * - 只有当签到接口判断 act_id 疑似失效时，才会动态刷新
+ *
+ * actPage:
+ * - 用于动态解析最新 act_id
+ * - 如果官方页面结构变化，可能解析失败
+ * - 解析失败不会中断整体流程，只会继续按失败处理
  */
 const GAME_CONFIG = {
   Genshin: {
@@ -43,6 +59,7 @@ const GAME_CONFIG = {
     act_id: 'e202311201442471',
     signgame: 'hk4e',
     default_region: 'cn_gf01',
+    actPage: 'https://act.mihoyo.com/bbs/event/signin/hk4e/index.html',
   },
   StarRail: {
     name: '星穹铁道-米游社',
@@ -50,6 +67,7 @@ const GAME_CONFIG = {
     act_id: 'e202304121516551',
     signgame: 'hkrpg',
     default_region: 'prod_gf_cn',
+    actPage: 'https://act.mihoyo.com/bbs/event/signin/hkrpg/index.html',
   },
   ZZZ: {
     name: '绝区零-米游社',
@@ -57,6 +75,7 @@ const GAME_CONFIG = {
     act_id: 'e202406242138391',
     signgame: 'zzz',
     default_region: 'prod_gf_cn',
+    actPage: 'https://act.mihoyo.com/bbs/event/signin/zzz/index.html',
   },
 }
 
@@ -137,7 +156,7 @@ function getCookieConfig() {
 /**
  * 生成米游社 DS
  */
-async function getDS() {
+function getDS() {
   const salt = 'yUZ3s0Sna1IrSNfk29Vo6vRapdOyqyhB'
   const t = Math.floor(Date.now() / 1e3)
   const r = Math.random().toString(36).slice(-6)
@@ -154,8 +173,39 @@ async function getHeaders(cookie, whichHeader) {
     ...COMMON_HEADERS,
     ...whichHeader,
     Cookie: cookie,
-    DS: await getDS(),
+    DS: getDS(),
   }
+}
+
+/**
+ * 动态刷新 act_id 并重试签到
+ *
+ * 返回：
+ * - true：刷新成功并重试签到成功
+ * - false：刷新失败、无新 act_id、或重试失败
+ */
+async function refreshActIdAndRetrySignIn(cookie, gameKey, role, currentActId) {
+  const game = getGameConfig(gameKey)
+
+  const latestActId = await fetchLatestActId(gameKey, game, {
+    axiosInstance: $axios,
+    userAgent: COMMON_HEADERS['User-Agent'],
+    formatAxiosError,
+  })
+
+  if (!latestActId) {
+    console.warn(`[${game.name}] Failed to fetch latest act_id, skip retry`)
+    return false
+  }
+
+  if (latestActId === currentActId) {
+    console.warn(`[${game.name}] Latest act_id is same as current act_id, skip retry`)
+    return false
+  }
+
+  console.info(`[${game.name}] Retry sign-in with latest act_id=${latestActId}`)
+
+  return signIn(cookie, gameKey, role, false)
 }
 
 /**
@@ -224,8 +274,12 @@ async function getRole(cookie, gameKey) {
 
 /**
  * 执行签到
+ *
+ * retryOnActIdInvalid:
+ * - true:  如果疑似 act_id 失效，则动态获取最新 act_id 并重试一次
+ * - false: 防止无限递归重试
  */
-async function signIn(cookie, gameKey, role) {
+async function signIn(cookie, gameKey, role, retryOnActIdInvalid = true) {
   const game = getGameConfig(gameKey)
 
   if (!role?.game_uid) {
@@ -238,8 +292,10 @@ async function signIn(cookie, gameKey, role) {
     'x-rpc-signgame': game.signgame,
   })
 
+  const currentActId = getCurrentActId(gameKey, game)
+
   const data = {
-    act_id: game.act_id,
+    act_id: currentActId,
     region: role.region || game.default_region,
     uid: role.game_uid,
     lang: 'zh-cn',
@@ -274,12 +330,59 @@ async function signIn(cookie, gameKey, role) {
       return true
     }
 
+    /**
+     * act_id 疑似失效时，只动态刷新当前游戏 act_id，并重试一次
+     */
+    if (retryOnActIdInvalid && isActIdInvalid(body)) {
+      console.warn(
+        `[${game.name}] act_id may be invalid, current act_id=${currentActId}, trying to refresh...`
+      )
+
+      const retryOk = await refreshActIdAndRetrySignIn(
+        cookie,
+        gameKey,
+        role,
+        currentActId
+      )
+
+      if (retryOk) {
+        return true
+      }
+
+      console.warn(`[${game.name}] Retry after refreshing act_id failed`)
+    }
+
     console.error(
       `[${game.name}] <${role.nickname}(${maskUid(role.game_uid)})> Sign-in failed: retcode=${retcode}, message=${message}`
     )
 
     return false
   } catch (err) {
+    const errorBody = err?.response?.data
+
+    /**
+     * 某些 act_id 错误可能以非 2xx HTTP 状态返回，axios 会进入 catch
+     * 所以这里也判断一次
+     */
+    if (retryOnActIdInvalid && isActIdInvalid(errorBody)) {
+      console.warn(
+        `[${game.name}] act_id may be invalid from error response, current act_id=${currentActId}, trying to refresh...`
+      )
+
+      const retryOk = await refreshActIdAndRetrySignIn(
+        cookie,
+        gameKey,
+        role,
+        currentActId
+      )
+
+      if (retryOk) {
+        return true
+      }
+
+      console.warn(`[${game.name}] Retry after refreshing act_id failed`)
+    }
+
     console.error(`[${game.name}] Sign-in error: ${formatAxiosError(err)}`)
     return false
   }
@@ -301,7 +404,7 @@ async function getSignReward(cookie, gameKey, role) {
   })
 
   const query = new URLSearchParams({
-    act_id: game.act_id,
+    act_id: getCurrentActId(gameKey, game),
     region: role.region || game.default_region,
     uid: role.game_uid,
     lang: 'zh-cn',
@@ -377,11 +480,12 @@ function logReward(gameName, cookieIndex, role, reward) {
 /**
  * 米游社签到入口
  *
- * 新逻辑：
+ * 逻辑：
  * - 没有 Cookie：跳过
  * - Cookie 有效但没有对应游戏角色：跳过该账号，不算失败
  * - 某个游戏所有账号都没有角色：该游戏整体 skipped=true
  * - Cookie 失效 / 接口异常 / 签到失败：算失败
+ * - act_id 疑似失效时，只动态刷新当前游戏的 act_id 并重试一次
  */
 async function doMYSSign(gameKey) {
   const game = getGameConfig(gameKey)
