@@ -31,7 +31,7 @@ function getTokenConfig() {
   const starRailTokens = process.env.STARRAIL_TOKENS
 
   if (!genshinTokens && !starRailTokens) {
-    console.error('[云游戏] Missing required environment variables.')
+    console.info('[云游戏] No cloud game tokens configured, skip cloud tasks.')
     return { CloudYS: [], CloudSR: [] }
   }
 
@@ -168,6 +168,12 @@ async function getWallet(gameKey, token) {
 
 /**
  * 查询未读弹窗通知
+ *
+ * 返回结构：
+ * {
+ *   ok: boolean,   // 接口是否请求成功
+ *   list: Array    // 通知列表
+ * }
  */
 async function getNotifications(gameKey, token) {
   const config = getGameConfig(gameKey)
@@ -180,8 +186,13 @@ async function getNotifications(gameKey, token) {
 
     if (res?.data?.message === 'OK' && Array.isArray(res.data.data?.list)) {
       const list = res.data.data.list
+
       console.log(`[${config.name}] Get notifications success! count: ${list.length}`)
-      return list
+
+      return {
+        ok: true,
+        list,
+      }
     }
 
     console.error(
@@ -193,10 +204,17 @@ async function getNotifications(gameKey, token) {
       )}`
     )
 
-    return []
+    return {
+      ok: false,
+      list: [],
+    }
   } catch (err) {
     console.error(`[${config.name}] Get notifications error: ${formatAxiosError(err)}`)
-    return []
+
+    return {
+      ok: false,
+      list: [],
+    }
   }
 }
 
@@ -266,16 +284,24 @@ async function doCloudSign(gameKey) {
 
     let userFailed = false
 
+    /**
+     * 第一次查询钱包
+     */
     const walletOk = await getWallet(gameKey, token)
 
     if (!walletOk) {
       userFailed = true
     }
 
-    const notificationsList = await getNotifications(gameKey, token)
+    /**
+     * 查询未读通知
+     */
+    const notificationsResult = await getNotifications(gameKey, token)
 
-    if (notificationsList.length) {
-      for (const notification of notificationsList) {
+    if (!notificationsResult.ok) {
+      userFailed = true
+    } else if (notificationsResult.list.length) {
+      for (const notification of notificationsResult.list) {
         await randomSleep(1, 3)
 
         const ok = await ackNotifications(gameKey, token, notification.id)
@@ -285,7 +311,14 @@ async function doCloudSign(gameKey) {
         }
       }
 
-      await getWallet(gameKey, token)
+      /**
+       * ACK 后再次查询钱包，并将结果计入失败判断
+       */
+      const walletAfterAckOk = await getWallet(gameKey, token)
+
+      if (!walletAfterAckOk) {
+        userFailed = true
+      }
     } else {
       console.log(`[${config.name}] No unread notifications`)
     }
