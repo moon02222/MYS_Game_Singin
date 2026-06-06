@@ -133,34 +133,36 @@ async function requestWithToken(gameKey, token, options) {
 }
 
 /**
- * 格式化云游戏时长
+ * 格式化云游戏分钟数
  *
- * 云游戏接口里的时长通常是秒。
+ * 注意：
+ * 根据网页显示，“免费时长”接口里的 free_time.free_time 单位是分钟。
+ *
+ * 示例：
+ * 216 -> 3小时36分钟
+ * 15  -> 15分钟
+ * 0   -> 0分钟
  */
-function formatCloudTime(seconds) {
-  const value = Number(seconds || 0)
+function formatCloudMinutes(minutes) {
+  const value = Number(minutes || 0)
 
   if (!Number.isFinite(value) || value <= 0) {
     return '0分钟'
   }
 
-  if (value < 60) {
-    return `${Math.floor(value)}秒`
-  }
-
-  const totalMinutes = Math.floor(value / 60)
+  const totalMinutes = Math.floor(value)
   const hours = Math.floor(totalMinutes / 60)
-  const minutes = totalMinutes % 60
+  const restMinutes = totalMinutes % 60
 
-  if (hours > 0 && minutes > 0) {
-    return `${hours}小时${minutes}分钟`
+  if (hours > 0 && restMinutes > 0) {
+    return `${hours}小时${restMinutes}分钟`
   }
 
   if (hours > 0) {
     return `${hours}小时`
   }
 
-  return `${minutes}分钟`
+  return `${restMinutes}分钟`
 }
 
 /**
@@ -177,12 +179,8 @@ function formatCloudTime(seconds) {
  *
  * 字段说明：
  * - freeTime 来自 data.free_time.free_time
- *   通常更接近云游戏页面显示的免费时长
- *
- * - totalTime 来自 data.total_time
- *   可能包含其它类型时长，仅保留用于排查
- *
- * 邮件展示建议使用 freeTime。
+ * - 页面显示的“免费时长”单位是分钟
+ * - totalTime 暂时仅保留用于日志排查，不作为邮件主展示
  */
 async function getWallet(gameKey, token) {
   const config = getGameConfig(gameKey)
@@ -195,20 +193,29 @@ async function getWallet(gameKey, token) {
 
     const walletData = res?.data?.data
 
+    /**
+     * 重点：
+     * free_time.free_time 是页面“免费时长”显示值，单位按分钟处理。
+     */
     const freeTime = Number(walletData?.free_time?.free_time ?? 0)
+
+    /**
+     * total_time 暂时也按分钟格式化，仅用于排查。
+     * 邮件主展示不用它。
+     */
     const totalTime = Number(walletData?.total_time ?? 0)
 
     if (res?.data?.message === 'OK' && walletData) {
       console.log(
-        `[${config.name}] Get wallet success! free_time: ${freeTime} (${formatCloudTime(freeTime)}), total_time: ${totalTime} (${formatCloudTime(totalTime)})`
+        `[${config.name}] Get wallet success! free_time: ${freeTime} (${formatCloudMinutes(freeTime)}), total_time: ${totalTime} (${formatCloudMinutes(totalTime)})`
       )
 
       return {
         ok: true,
         freeTime,
         totalTime,
-        freeTimeText: formatCloudTime(freeTime),
-        totalTimeText: formatCloudTime(totalTime),
+        freeTimeText: formatCloudMinutes(freeTime),
+        totalTimeText: formatCloudMinutes(totalTime),
       }
     }
 
@@ -337,8 +344,8 @@ async function ackNotifications(gameKey, token, id) {
  * - passportMasked 用于邮件展示
  *
  * 字段说明：
- * - afterFreeTimeText 用于邮件主展示
- * - afterTotalTimeText 仅保留用于排查或兼容旧展示
+ * - beforeFreeTime / afterFreeTime 单位是分钟
+ * - claimedTime 单位是分钟
  */
 function logCloudReward(gameName, tokenIndex, token, beforeWallet, afterWallet, claimedTime) {
   const safePassportInfo = getSafePassportInfo(token)
@@ -350,7 +357,7 @@ function logCloudReward(gameName, tokenIndex, token, beforeWallet, afterWallet, 
       passportMasked: safePassportInfo.passportMasked,
 
       /**
-       * 免费时长：
+       * 免费时长，单位：分钟
        * 邮件展示优先使用 afterFreeTimeText
        */
       beforeFreeTime: beforeWallet.freeTime,
@@ -359,8 +366,8 @@ function logCloudReward(gameName, tokenIndex, token, beforeWallet, afterWallet, 
       afterFreeTimeText: afterWallet.freeTimeText,
 
       /**
-       * 总时长：
-       * 仅用于排查，可能包含其它时长，不建议作为邮件主展示
+       * 总时长，单位暂按分钟处理
+       * 仅用于排查，不建议作为邮件主展示
        */
       beforeTotalTime: beforeWallet.totalTime,
       afterTotalTime: afterWallet.totalTime,
@@ -368,11 +375,10 @@ function logCloudReward(gameName, tokenIndex, token, beforeWallet, afterWallet, 
       afterTotalTimeText: afterWallet.totalTimeText,
 
       /**
-       * 本次领取时长：
-       * 使用免费时长差值计算
+       * 本次领取时长，单位：分钟
        */
       claimedTime,
-      claimedTimeText: formatCloudTime(claimedTime),
+      claimedTimeText: formatCloudMinutes(claimedTime),
     })}`
   )
 }
@@ -457,11 +463,10 @@ async function doCloudSign(gameKey) {
     /**
      * 计算领取时长
      *
-     * 使用 freeTime 计算：
-     * - 领取后免费时长 = afterWallet.freeTime
-     * - 领取时长 = afterWallet.freeTime - beforeWallet.freeTime
+     * 单位：分钟
      *
-     * totalTime 只保留用于排查。
+     * 领取后免费时长 = afterWallet.freeTime
+     * 本次领取时长 = afterWallet.freeTime - beforeWallet.freeTime
      */
     const claimedTime =
       beforeWallet.ok && afterWallet.ok
@@ -469,7 +474,7 @@ async function doCloudSign(gameKey) {
         : 0
 
     console.log(
-      `[${config.name}] User ${tokenIndex + 1} cloud time result: before=${beforeWallet.freeTimeText}, after=${afterWallet.freeTimeText}, claimed=${formatCloudTime(claimedTime)}`
+      `[${config.name}] User ${tokenIndex + 1} cloud time result: before=${beforeWallet.freeTimeText}, after=${afterWallet.freeTimeText}, claimed=${formatCloudMinutes(claimedTime)}`
     )
 
     logCloudReward(config.name, tokenIndex, token, beforeWallet, afterWallet, claimedTime)
