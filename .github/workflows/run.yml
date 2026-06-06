@@ -40,7 +40,7 @@ jobs:
         run: npm ci --ignore-scripts
 
       # 将非空敏感变量加入 GitHub Actions mask，降低日志泄露风险
-      # 会同时 mask 原始完整 Secret，以及按换行 / 英文逗号拆分后的每个账号值
+      # 会按换行 / 英文逗号拆分后的每个账号值逐项 add-mask
       - name: Mask secrets
         env:
           MYS_COOKIES: ${{ secrets.MYS_COOKIES }}
@@ -66,12 +66,9 @@ jobs:
               return
             fi
 
-            # 先 mask 原始完整值
-            mask_value "$value"
-
-            # 再按英文逗号和换行拆分，逐个 mask
+            # 按英文逗号和换行拆分，逐个 mask
             echo "$value" | tr ',' '\n' | while IFS= read -r item; do
-              item="$(echo "$item" | xargs)"
+              item="$(echo "$item" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
 
               if [ -n "$item" ]; then
                 echo "::add-mask::$item"
@@ -114,7 +111,6 @@ jobs:
         env:
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           JOB_STATUS: ${{ job.status }}
-          REPOSITORY_NAME: ${{ github.repository }}
         run: |
           node --input-type=module <<'EOF'
           import fs from 'node:fs'
@@ -137,12 +133,15 @@ jobs:
             const smtpPassword = required('SMTP_PASSWORD')
             const mailTo = required('MAIL_TO')
 
-            const repositoryName = process.env.REPOSITORY_NAME || 'mihoyo-sign-in'
             const jobStatus = process.env.JOB_STATUS || 'unknown'
 
             const html = fs.existsSync('summary.html')
               ? fs.readFileSync('summary.html', 'utf8')
               : '<p>summary.html not found</p>'
+
+            const summaryTitle = fs.existsSync('summary-title.txt')
+              ? fs.readFileSync('summary-title.txt', 'utf8').trim()
+              : '签到结果'
 
             const transporter = nodemailer.createTransport({
               host: smtpServer,
@@ -157,7 +156,7 @@ jobs:
             await transporter.sendMail({
               from: smtpUsername,
               to: mailTo,
-              subject: `米游社签到结果 - ${repositoryName} - ${jobStatus}`,
+              subject: `${summaryTitle} - ${jobStatus}`,
               html,
             })
 
