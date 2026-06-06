@@ -267,12 +267,17 @@ function renderAccountCloudRow(row, group) {
   const status = reward ? '✅ 成功' : renderStatus(row.summary)
 
   /**
-   * 优先显示 total_time 对应的领取后时长
-   * 兼容旧日志里的 afterFreeTimeText
+   * 云游戏页面通常显示的是免费时长。
+   *
+   * 优先显示 afterFreeTimeText：
+   * - 新日志：afterFreeTimeText 来自 free_time.free_time
+   *
+   * 兼容旧日志：
+   * - 如果旧日志没有 afterFreeTimeText，则回退到 afterTotalTimeText
    */
   const afterTime =
-    reward?.afterTotalTimeText ||
     reward?.afterFreeTimeText ||
+    reward?.afterTotalTimeText ||
     '—'
 
   const claimedTime = reward?.claimedTimeText || '—'
@@ -331,7 +336,7 @@ function renderAccountMysTable(rows = [], group) {
  * 渲染账号下的云游戏结果表
  *
  * 列：
- * 游戏 | 签到结果 | 领取后时长 | 领取时长
+ * 游戏 | 签到结果 | 领取后免费时长 | 领取时长
  */
 function renderAccountCloudTable(rows = [], group) {
   const availableRows = rows.filter((row) => findCloudReward(row, group))
@@ -351,7 +356,7 @@ function renderAccountCloudTable(rows = [], group) {
         <tr style="background-color: #1e90ff; color: white;">
           <th style="padding: 7px 4px; text-align: center; width: 22%; font-size: 12px;">游戏</th>
           <th style="padding: 7px 4px; text-align: center; width: 24%; font-size: 12px;">签到结果</th>
-          <th style="padding: 7px 4px; text-align: center; width: 27%; font-size: 12px;">领取后时长</th>
+          <th style="padding: 7px 4px; text-align: center; width: 27%; font-size: 12px;">领取后免费时长</th>
           <th style="padding: 7px 4px; text-align: center; width: 27%; font-size: 12px;">领取时长</th>
         </tr>
       </thead>
