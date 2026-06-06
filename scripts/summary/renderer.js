@@ -22,6 +22,59 @@ function renderStatus(summary) {
 }
 
 /**
+ * 获取报告标题信息
+ */
+function getReportTitleInfo(mysRows = [], cloudRows = []) {
+  const hasMys = mysRows.length > 0
+  const hasCloud = cloudRows.length > 0
+
+  if (hasMys && hasCloud) {
+    return {
+      pageTitle: '米游社和云游戏签到结果总结',
+      mainTitle: '📊 米游社和云游戏签到结果总结',
+      sectionTitle: '🏠 米游社和云游戏签到',
+      mailTitle: '米游社和云游戏签到结果',
+      sectionColor: '#2e8b57',
+    }
+  }
+
+  if (hasCloud) {
+    return {
+      pageTitle: '云游戏签到结果总结',
+      mainTitle: '📊 云游戏签到结果总结',
+      sectionTitle: '☁️ 云游戏签到',
+      mailTitle: '云游戏签到结果',
+      sectionColor: '#1e90ff',
+    }
+  }
+
+  if (hasMys) {
+    return {
+      pageTitle: '米游社签到结果总结',
+      mainTitle: '📊 米游社签到结果总结',
+      sectionTitle: '🏠 米游社签到',
+      mailTitle: '米游社签到结果',
+      sectionColor: '#2e8b57',
+    }
+  }
+
+  return {
+    pageTitle: '签到结果总结',
+    mainTitle: '📊 签到结果总结',
+    sectionTitle: '签到结果',
+    mailTitle: '签到结果',
+    sectionColor: '#4a90e2',
+  }
+}
+
+/**
+ * 供 summary/index.js 写入邮件标题文件使用
+ */
+export function getMailTitle({ mysRows = [], cloudRows = [] }) {
+  return getReportTitleInfo(mysRows, cloudRows).mailTitle
+}
+
+/**
  * 获取分组 key
  *
  * 优先 passportHash。
@@ -212,7 +265,16 @@ function renderAccountMysRow(row, group) {
 function renderAccountCloudRow(row, group) {
   const reward = findCloudReward(row, group)
   const status = reward ? '✅ 成功' : renderStatus(row.summary)
-  const afterTime = reward?.afterFreeTimeText || '—'
+
+  /**
+   * 优先显示 total_time 对应的领取后时长
+   * 兼容旧日志里的 afterFreeTimeText
+   */
+  const afterTime =
+    reward?.afterTotalTimeText ||
+    reward?.afterFreeTimeText ||
+    '—'
+
   const claimedTime = reward?.claimedTimeText || '—'
 
   return `
@@ -330,7 +392,7 @@ function renderAccountBlock(group, mysRows = [], cloudRows = []) {
 /**
  * 渲染按账号分组区域
  */
-function renderGroupedAccountSection({ mysRows, cloudRows }) {
+function renderGroupedAccountSection({ mysRows, cloudRows, titleInfo }) {
   const groups = collectAccountGroups(mysRows, cloudRows)
 
   if (!groups.length) return ''
@@ -340,8 +402,8 @@ function renderGroupedAccountSection({ mysRows, cloudRows }) {
     .join('\n')
 
   return `
-    <h3 style="color: #2e8b57; text-align: center; margin-top: 18px; margin-bottom: 8px; font-size: 16px;">
-      🏠 米游社签到
+    <h3 style="color: ${titleInfo.sectionColor}; text-align: center; margin-top: 18px; margin-bottom: 8px; font-size: 16px;">
+      ${escapeHtml(titleInfo.sectionTitle)}
     </h3>
     ${body}
   `
@@ -351,7 +413,8 @@ function renderGroupedAccountSection({ mysRows, cloudRows }) {
  * 生成完整 HTML
  */
 export function renderHtml({ execTime, mysRows, cloudRows }) {
-  const groupedSection = renderGroupedAccountSection({ mysRows, cloudRows })
+  const titleInfo = getReportTitleInfo(mysRows, cloudRows)
+  const groupedSection = renderGroupedAccountSection({ mysRows, cloudRows, titleInfo })
 
   const emptyMessage = !groupedSection
     ? `<div style="padding: 14px; background-color: #f8f9fa; border: 1px solid #ddd; text-align: center; margin-top: 16px; font-size: 13px;">本次没有可显示的签到任务。</div>`
@@ -361,12 +424,12 @@ export function renderHtml({ execTime, mysRows, cloudRows }) {
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <title>米游社签到结果总结</title>
+  <title>${escapeHtml(titleInfo.pageTitle)}</title>
 </head>
 <body style="margin: 0; padding: 12px; font-family: Arial, Helvetica, sans-serif; color: #333;">
   <div style="max-width: 680px; margin: 0 auto;">
     <h2 style="color: #4a90e2; text-align: center; font-size: 18px; margin: 8px 0 10px;">
-      📊 米游社签到结果总结
+      ${escapeHtml(titleInfo.mainTitle)}
     </h2>
     <p style="text-align: center; font-size: 12px; margin: 0 0 12px;">
       <strong>🕒 执行时间：</strong> ${escapeHtml(execTime)}
