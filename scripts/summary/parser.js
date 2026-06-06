@@ -18,6 +18,7 @@ export function readOutputLog() {
     console.warn(`[Summary] ${OUTPUT_LOG} not found, create empty summary.`)
     return ''
   }
+
   return fs.readFileSync(OUTPUT_LOG, 'utf8')
 }
 
@@ -28,25 +29,48 @@ export function extractSummaryLine(output, label) {
   const escapedLabel = escapeRegExp(label)
   const regex = new RegExp(`\\[${escapedLabel}\\] Summary:.*`, 'g')
   const matches = output.match(regex)
+
   if (!matches?.length) return ''
+
   return matches[matches.length - 1]
 }
 
 /**
- * 提取某个任务的 Reward 行
+ * 提取米游社 Reward 行
  */
 export function extractRewardLines(output, label) {
   const escapedLabel = escapeRegExp(label)
   const regex = new RegExp(`\\[${escapedLabel}\\] Reward:\\s*(\\{.*\\})`, 'g')
   const rewards = []
+
   for (const match of output.matchAll(regex)) {
     try {
       rewards.push(JSON.parse(match[1]))
     } catch {
-      // 忽略解析失败的奖励日志
+      // 忽略解析失败
     }
   }
+
   return rewards
+}
+
+/**
+ * 提取云游戏 CloudReward 行
+ */
+export function extractCloudRewardLines(output, label) {
+  const escapedLabel = escapeRegExp(label)
+  const regex = new RegExp(`\\[${escapedLabel}\\] CloudReward:\\s*(\\{.*\\})`, 'g')
+  const cloudRewards = []
+
+  for (const match of output.matchAll(regex)) {
+    try {
+      cloudRewards.push(JSON.parse(match[1]))
+    } catch {
+      // 忽略解析失败
+    }
+  }
+
+  return cloudRewards
 }
 
 /**
@@ -54,10 +78,13 @@ export function extractRewardLines(output, label) {
  */
 export function parseSummaryLine(line) {
   if (!line) return null
+
   const match = line.match(
     /Summary:\s+total=(\d+)\s+failed=(\d+)\s+skipped=(true|false)\s+success=(true|false)/
   )
+
   if (!match) return null
+
   return {
     total: Number(match[1]),
     failed: Number(match[2]),
@@ -76,7 +103,15 @@ export function buildRows(output, tasks) {
       const line = extractSummaryLine(output, task.label)
       const summary = parseSummaryLine(line)
       const rewards = extractRewardLines(output, task.label)
-      return { title: task.title, label: task.label, summary, rewards }
+      const cloudRewards = extractCloudRewardLines(output, task.label)
+
+      return {
+        title: task.title,
+        label: task.label,
+        summary,
+        rewards,
+        cloudRewards,
+      }
     })
     .filter((item) => !item.summary?.skipped)
 }

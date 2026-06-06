@@ -6,6 +6,7 @@ import {
   parseCookieList,
   maskUid,
   formatAxiosError,
+  getSafePassportInfo,
 } from '../utils/index.js'
 import {
   getCurrentActId,
@@ -19,6 +20,11 @@ import {
  * 米游社接口主机
  */
 const WEB_HOST = 'api-takumi.mihoyo.com'
+
+/**
+ * 米游社用户信息接口主机
+ */
+const BBS_HOST = 'bbs-api.miyoushe.com'
 
 /**
  * 模拟米游社 App 版本
@@ -174,6 +180,78 @@ async function getHeaders(cookie, whichHeader) {
     ...whichHeader,
     Cookie: cookie,
     DS: getDS(),
+  }
+}
+
+/**
+ * 获取米游社账号信息
+ *
+ * 返回：
+ * {
+ *   mysNickname,
+ *   passportHash,
+ *   passportMasked
+ * }
+ *
+ * 注意：
+ * - 不返回完整 passportId
+ * - 获取失败不影响签到
+ */
+async function getMYSAccountInfo(cookie, gameKey) {
+  const game = getGameConfig(gameKey)
+  const fallbackSafeInfo = getSafePassportInfo(cookie)
+
+  try {
+    const res = await $axios.request({
+      method: 'GET',
+      url: `https://${BBS_HOST}/user/wapi/getUserFullInfo?gids=2`,
+      headers: {
+        Cookie: cookie,
+        Host: BBS_HOST,
+        Referer: 'https://www.miyoushe.com/',
+        Origin: 'https://www.miyoushe.com',
+        'User-Agent': COMMON_HEADERS['User-Agent'],
+        Accept: 'application/json, text/plain, */*',
+      },
+    })
+
+    const data = res?.data
+
+    if (data?.retcode === 0) {
+      const mysNickname =
+        data.data?.user_info?.nickname ||
+        data.data?.userInfo?.nickname ||
+        data.data?.nickname ||
+        ''
+
+      const safeInfoFromResponse = getSafePassportInfo(data)
+
+      if (mysNickname) {
+        console.log(`[${game.name}] MYS account nickname fetched`)
+      }
+
+      return {
+        mysNickname,
+        passportHash: safeInfoFromResponse.passportHash || fallbackSafeInfo.passportHash,
+        passportMasked: safeInfoFromResponse.passportMasked || fallbackSafeInfo.passportMasked,
+      }
+    }
+
+    console.warn(
+      `[${game.name}] Get MYS account info failed: retcode=${data?.retcode}, message=${data?.message}`
+    )
+
+    return {
+      mysNickname: '',
+      ...fallbackSafeInfo,
+    }
+  } catch (err) {
+    console.warn(`[${game.name}] Get MYS account info error: ${formatAxiosError(err)}`)
+
+    return {
+      mysNickname: '',
+      ...fallbackSafeInfo,
+    }
   }
 }
 
@@ -461,13 +539,21 @@ async function getSignReward(cookie, gameKey, role) {
 
 /**
  * 输出奖励日志，供邮件摘要解析
+ *
+ * 注意：
+ * - 不输出完整通行证 ID
+ * - passportHash 用于同账号匹配
+ * - passportMasked 用于邮件展示
  */
-function logReward(gameName, cookieIndex, role, reward) {
+function logReward(gameName, cookieIndex, role, reward, accountInfo = {}) {
   if (!reward) return
 
   console.log(
     `[${gameName}] Reward: ${JSON.stringify({
       user: cookieIndex + 1,
+      passportHash: accountInfo.passportHash || '',
+      passportMasked: accountInfo.passportMasked || '',
+      mysNickname: accountInfo.mysNickname || '',
       uid: maskUid(role.game_uid),
       day: reward.day,
       name: reward.name,
@@ -538,7 +624,11 @@ async function doMYSSign(gameKey) {
 
       if (ok) {
         const reward = await getSignReward(cookie, gameKey, role)
-        logReward(game.name, cookieIndex, role, reward)
+
+        if (reward) {
+          const accountInfo = await getMYSAccountInfo(cookie, gameKey)
+          logReward(game.name, cookieIndex, role, reward, accountInfo)
+        }
       } else {
         failed++
       }

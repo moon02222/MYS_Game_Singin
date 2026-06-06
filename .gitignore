@@ -74,6 +74,9 @@ output.log
 # Actions 生成的邮件 HTML 文件
 summary.html
 
+# Actions 生成的邮件标题文本文件
+summary-title.txt
+
 
 # ==============================
 # System files

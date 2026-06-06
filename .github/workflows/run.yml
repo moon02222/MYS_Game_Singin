@@ -40,7 +40,7 @@ jobs:
         run: npm ci --ignore-scripts
 
       # 将非空敏感变量加入 GitHub Actions mask，降低日志泄露风险
-      # SMTP_PASSWORD 不在这里处理，只在发送邮件步骤中使用
+      # 会按换行 / 英文逗号拆分后的每个账号值逐项 add-mask
       - name: Mask secrets
         env:
           MYS_COOKIES: ${{ secrets.MYS_COOKIES }}
@@ -49,30 +49,40 @@ jobs:
           MYS_DEVICE_ID: ${{ secrets.MYS_DEVICE_ID }}
           MIHOYO_DEVICE_ID: ${{ secrets.MIHOYO_DEVICE_ID }}
           MIHOYO_CLOUD_DEVICE_ID: ${{ secrets.MIHOYO_CLOUD_DEVICE_ID }}
+        shell: bash
         run: |
-          if [ -n "$MYS_COOKIES" ]; then
-            echo "::add-mask::$MYS_COOKIES"
-          fi
+          mask_value() {
+            local value="$1"
 
-          if [ -n "$GENSHIN_TOKENS" ]; then
-            echo "::add-mask::$GENSHIN_TOKENS"
-          fi
+            if [ -n "$value" ]; then
+              echo "::add-mask::$value"
+            fi
+          }
 
-          if [ -n "$STARRAIL_TOKENS" ]; then
-            echo "::add-mask::$STARRAIL_TOKENS"
-          fi
+          mask_list() {
+            local value="$1"
 
-          if [ -n "$MYS_DEVICE_ID" ]; then
-            echo "::add-mask::$MYS_DEVICE_ID"
-          fi
+            if [ -z "$value" ]; then
+              return
+            fi
 
-          if [ -n "$MIHOYO_DEVICE_ID" ]; then
-            echo "::add-mask::$MIHOYO_DEVICE_ID"
-          fi
+            # 按英文逗号和换行拆分，逐个 mask
+            echo "$value" | tr ',' '\n' | while IFS= read -r item; do
+              item="$(echo "$item" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
 
-          if [ -n "$MIHOYO_CLOUD_DEVICE_ID" ]; then
-            echo "::add-mask::$MIHOYO_CLOUD_DEVICE_ID"
-          fi
+              if [ -n "$item" ]; then
+                echo "::add-mask::$item"
+              fi
+            done
+          }
+
+          mask_list "$MYS_COOKIES"
+          mask_list "$GENSHIN_TOKENS"
+          mask_list "$STARRAIL_TOKENS"
+
+          mask_value "$MYS_DEVICE_ID"
+          mask_value "$MIHOYO_DEVICE_ID"
+          mask_value "$MIHOYO_CLOUD_DEVICE_ID"
 
       # 执行主脚本，并将所有输出写入 output.log
       - name: Run main.js
@@ -101,7 +111,6 @@ jobs:
         env:
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           JOB_STATUS: ${{ job.status }}
-          REPOSITORY_NAME: ${{ github.repository }}
         run: |
           node --input-type=module <<'EOF'
           import fs from 'node:fs'
@@ -124,12 +133,15 @@ jobs:
             const smtpPassword = required('SMTP_PASSWORD')
             const mailTo = required('MAIL_TO')
 
-            const repositoryName = process.env.REPOSITORY_NAME || 'mihoyo-sign-in'
             const jobStatus = process.env.JOB_STATUS || 'unknown'
 
             const html = fs.existsSync('summary.html')
               ? fs.readFileSync('summary.html', 'utf8')
               : '<p>summary.html not found</p>'
+
+            const summaryTitle = fs.existsSync('summary-title.txt')
+              ? fs.readFileSync('summary-title.txt', 'utf8').trim()
+              : '签到结果'
 
             const transporter = nodemailer.createTransport({
               host: smtpServer,
@@ -144,7 +156,7 @@ jobs:
             await transporter.sendMail({
               from: smtpUsername,
               to: mailTo,
-              subject: `米游社签到结果 - ${repositoryName} - ${jobStatus}`,
+              subject: `${summaryTitle} - ${jobStatus}`,
               html,
             })
 

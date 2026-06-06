@@ -1,9 +1,10 @@
 import fs from 'node:fs'
 import { MYS_TASKS, CLOUD_TASKS } from './config.js'
 import { readOutputLog, buildRows } from './parser.js'
-import { renderHtml } from './renderer.js'
+import { renderHtml, getMailTitle } from './renderer.js'
 
 const SUMMARY_HTML = 'summary.html'
+const SUMMARY_TITLE = 'summary-title.txt'
 
 /**
  * 获取北京时间
@@ -31,10 +32,13 @@ function main() {
   const cloudRows = buildRows(output, CLOUD_TASKS)
 
   const html = renderHtml({ execTime, mysRows, cloudRows })
+  const mailTitle = getMailTitle({ mysRows, cloudRows })
 
   fs.writeFileSync(SUMMARY_HTML, html, 'utf8')
+  fs.writeFileSync(SUMMARY_TITLE, mailTitle, 'utf8')
 
   console.log(`[Summary] Generated ${SUMMARY_HTML}`)
+  console.log(`[Summary] Generated ${SUMMARY_TITLE}: ${mailTitle}`)
   console.log(`[Summary] MYS rows: ${mysRows.length}`)
   console.log(`[Summary] Cloud rows: ${cloudRows.length}`)
 }

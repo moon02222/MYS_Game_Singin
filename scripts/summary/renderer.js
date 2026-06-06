@@ -22,83 +22,304 @@ function renderStatus(summary) {
 }
 
 /**
- * 渲染累计天数
+ * 获取报告标题信息
  */
-function renderDayCell(rewards = []) {
-  if (!rewards.length) return '—'
-  return rewards
-    .map((reward) => {
-      const userPrefix = rewards.length > 1 && reward.user ? `账号${reward.user}：` : ''
-      const day = reward.day ? `${reward.day}天` : '未知'
-      return `
-        <div style="margin: 2px 0; white-space: nowrap;">
-          ${escapeHtml(userPrefix)}${escapeHtml(day)}
-        </div>
-      `
-    })
-    .join('')
+function getReportTitleInfo(mysRows = [], cloudRows = []) {
+  const hasMys = mysRows.length > 0
+  const hasCloud = cloudRows.length > 0
+
+  if (hasMys && hasCloud) {
+    return {
+      pageTitle: '米游社和云游戏签到结果总结',
+      mainTitle: '📊 米游社和云游戏签到结果总结',
+      sectionTitle: '🏠 米游社和云游戏签到',
+      mailTitle: '米游社和云游戏签到结果',
+      sectionColor: '#2e8b57',
+    }
+  }
+
+  if (hasCloud) {
+    return {
+      pageTitle: '云游戏签到结果总结',
+      mainTitle: '📊 云游戏签到结果总结',
+      sectionTitle: '☁️ 云游戏签到',
+      mailTitle: '云游戏签到结果',
+      sectionColor: '#1e90ff',
+    }
+  }
+
+  if (hasMys) {
+    return {
+      pageTitle: '米游社签到结果总结',
+      mainTitle: '📊 米游社签到结果总结',
+      sectionTitle: '🏠 米游社签到',
+      mailTitle: '米游社签到结果',
+      sectionColor: '#2e8b57',
+    }
+  }
+
+  return {
+    pageTitle: '签到结果总结',
+    mainTitle: '📊 签到结果总结',
+    sectionTitle: '签到结果',
+    mailTitle: '签到结果',
+    sectionColor: '#4a90e2',
+  }
 }
 
 /**
- * 渲染今日奖励
+ * 供 summary/index.js 写入邮件标题文件使用
  */
-function renderRewardCell(rewards = []) {
-  if (!rewards.length) return '—'
-  return rewards
-    .map((reward) => {
-      const userPrefix = rewards.length > 1 && reward.user ? `账号${reward.user}` : ''
-      const name = reward.name || '未知奖励'
-      const cnt = reward.cnt ? `×${reward.cnt}` : ''
-      const icon = reward.icon
-        ? `<img src="${escapeHtml(reward.icon)}" alt="${escapeHtml(name)}" style="width: 30px; height: 30px; display: block; margin: 0 auto 3px auto;">`
-        : ''
-      return `
-        <div style="display: inline-block; min-width: 48px; margin: 2px 4px; text-align: center; vertical-align: top;">
-          ${userPrefix ? `<div style="font-size: 10px; line-height: 1.2; color: #666;">${escapeHtml(userPrefix)}</div>` : ''}
-          ${icon}
-          <div style="font-size: 11px; line-height: 1.25; word-break: keep-all;">${escapeHtml(name)}</div>
-          <div style="font-size: 11px; line-height: 1.25; color: #555;">${escapeHtml(cnt)}</div>
-        </div>
-      `
-    })
-    .join('')
+export function getMailTitle({ mysRows = [], cloudRows = [] }) {
+  return getReportTitleInfo(mysRows, cloudRows).mailTitle
 }
 
 /**
- * 生成单行 HTML
+ * 获取分组 key
+ *
+ * 优先 passportHash。
+ * 没有 passportHash 时，使用来源 + user 序号，避免误合并。
  */
-function renderRow(title, summary, rewards = []) {
-  const status = renderStatus(summary)
+function getAccountGroupKey(item, source = 'user') {
+  if (item?.passportHash) {
+    return `passport:${item.passportHash}`
+  }
+
+  if (item?.user) {
+    return `${source}:${item.user}`
+  }
+
+  return `${source}:unknown`
+}
+
+/**
+ * 收集账号分组
+ */
+function collectAccountGroups(mysRows = [], cloudRows = []) {
+  const groups = new Map()
+
+  function addGroup(key, item, source) {
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key,
+        user: Number(item?.user || 0),
+        passportHash: item?.passportHash || '',
+        passportMasked: item?.passportMasked || '',
+        source,
+      })
+    } else {
+      const current = groups.get(key)
+
+      if (!current.passportHash && item?.passportHash) {
+        current.passportHash = item.passportHash
+      }
+
+      if (!current.passportMasked && item?.passportMasked) {
+        current.passportMasked = item.passportMasked
+      }
+
+      if (!current.user && item?.user) {
+        current.user = Number(item.user)
+      }
+    }
+  }
+
+  for (const row of mysRows) {
+    for (const reward of row.rewards || []) {
+      const key = getAccountGroupKey(reward, 'mys')
+      addGroup(key, reward, 'mys')
+    }
+  }
+
+  for (const row of cloudRows) {
+    for (const reward of row.cloudRewards || []) {
+      const key = getAccountGroupKey(reward, 'cloud')
+      addGroup(key, reward, 'cloud')
+    }
+  }
+
+  return [...groups.values()].sort((a, b) => {
+    if (a.user && b.user) return a.user - b.user
+    return String(a.key).localeCompare(String(b.key))
+  })
+}
+
+/**
+ * 获取账号显示名
+ *
+ * 优先显示米游社昵称。
+ */
+function getAccountDisplayName(group, mysRows = []) {
+  for (const row of mysRows) {
+    for (const reward of row.rewards || []) {
+      const key = getAccountGroupKey(reward, 'mys')
+
+      if (key === group.key && reward.mysNickname) {
+        return reward.mysNickname
+      }
+    }
+  }
+
+  if (group.user) {
+    return `账号${group.user}`
+  }
+
+  return '未知账号'
+}
+
+/**
+ * 获取分组打码 ID
+ */
+function getGroupMaskedPassportId(group, mysRows = [], cloudRows = []) {
+  if (group?.passportMasked) {
+    return group.passportMasked
+  }
+
+  for (const row of mysRows) {
+    for (const reward of row.rewards || []) {
+      if (getAccountGroupKey(reward, 'mys') === group.key && reward.passportMasked) {
+        return reward.passportMasked
+      }
+    }
+  }
+
+  for (const row of cloudRows) {
+    for (const reward of row.cloudRewards || []) {
+      if (getAccountGroupKey(reward, 'cloud') === group.key && reward.passportMasked) {
+        return reward.passportMasked
+      }
+    }
+  }
+
+  return ''
+}
+
+/**
+ * 查找指定账号分组的米游社结果
+ */
+function findMysReward(row, group) {
+  return (row.rewards || []).find((reward) => {
+    return getAccountGroupKey(reward, 'mys') === group.key
+  })
+}
+
+/**
+ * 查找指定账号分组的云游戏结果
+ */
+function findCloudReward(row, group) {
+  return (row.cloudRewards || []).find((reward) => {
+    return getAccountGroupKey(reward, 'cloud') === group.key
+  })
+}
+
+/**
+ * 渲染米游社奖励内容
+ */
+function renderMysRewardContent(reward) {
+  if (!reward) return '—'
+
+  const name = reward.name || '未知奖励'
+  const cnt = reward.cnt ? `×${reward.cnt}` : ''
+  const icon = reward.icon
+    ? `<img src="${escapeHtml(reward.icon)}" alt="${escapeHtml(name)}" style="width: 30px; height: 30px; display: block; margin: 0 auto 3px auto;">`
+    : ''
+
+  return `
+    <div style="display: inline-block; min-width: 48px; margin: 2px 4px; text-align: center; vertical-align: top;">
+      ${icon}
+      <div style="font-size: 11px; line-height: 1.25; word-break: keep-all;">${escapeHtml(name)}</div>
+      <div style="font-size: 11px; line-height: 1.25; color: #555;">${escapeHtml(cnt)}</div>
+    </div>
+  `
+}
+
+/**
+ * 渲染账号下的米游社单行
+ */
+function renderAccountMysRow(row, group) {
+  const reward = findMysReward(row, group)
+  const status = reward ? '✅ 成功' : renderStatus(row.summary)
+  const day = reward?.day ? `${reward.day}天` : '—'
+
   return `
     <tr>
       <td style="padding: 7px 5px; background-color: #f8f9fa; text-align: center; font-size: 12px;">
-        ${escapeHtml(title)}
+        ${escapeHtml(row.title)}
       </td>
       <td style="padding: 7px 5px; background-color: #f8f9fa; text-align: center; font-size: 12px; font-weight: bold; white-space: nowrap;">
         ${escapeHtml(status)}
       </td>
       <td style="padding: 7px 5px; background-color: #f8f9fa; text-align: center; font-size: 12px;">
-        ${renderDayCell(rewards)}
+        ${escapeHtml(day)}
       </td>
       <td style="padding: 7px 5px; background-color: #f8f9fa; text-align: center; font-size: 12px;">
-        ${renderRewardCell(rewards)}
+        ${renderMysRewardContent(reward)}
       </td>
-    </tr>`
+    </tr>
+  `
 }
 
 /**
- * 渲染一个结果区域
+ * 渲染账号下的云游戏单行
  */
-function renderSection({ title, color, rows }) {
-  if (!rows.length) return ''
-  const body = rows.map((row) => renderRow(row.title, row.summary, row.rewards)).join('\n')
+function renderAccountCloudRow(row, group) {
+  const reward = findCloudReward(row, group)
+  const status = reward ? '✅ 成功' : renderStatus(row.summary)
+
+  /**
+   * 云游戏网页展示的是免费时长。
+   *
+   * 优先使用 afterFreeTimeText：
+   * - 来自 CloudReward.afterFreeTimeText
+   * - 对应接口字段 data.free_time.free_time
+   *
+   * 兼容旧日志：
+   * - 如果没有 afterFreeTimeText，才回退到 afterTotalTimeText
+   */
+  const afterTime =
+    reward?.afterFreeTimeText ||
+    reward?.afterTotalTimeText ||
+    '—'
+
+  const claimedTime = reward?.claimedTimeText || '—'
+
   return `
-    <h3 style="color: ${color}; text-align: center; margin-top: 18px; margin-bottom: 8px; font-size: 16px;">
-      ${escapeHtml(title)}
-    </h3>
-    <table border="1" cellpadding="0" cellspacing="0" style="border-collapse: collapse; width: 100%; border: 1px solid ${color}; table-layout: fixed; margin: 0 auto;">
+    <tr>
+      <td style="padding: 7px 5px; background-color: #f8f9fa; text-align: center; font-size: 12px;">
+        ${escapeHtml(row.title)}
+      </td>
+      <td style="padding: 7px 5px; background-color: #f8f9fa; text-align: center; font-size: 12px; font-weight: bold; white-space: nowrap;">
+        ${escapeHtml(status)}
+      </td>
+      <td style="padding: 7px 5px; background-color: #f8f9fa; text-align: center; font-size: 12px;">
+        ${escapeHtml(afterTime)}
+      </td>
+      <td style="padding: 7px 5px; background-color: #f8f9fa; text-align: center; font-size: 12px;">
+        ${escapeHtml(claimedTime)}
+      </td>
+    </tr>
+  `
+}
+
+/**
+ * 渲染账号下的米游社结果表
+ */
+function renderAccountMysTable(rows = [], group) {
+  const availableRows = rows.filter((row) => findMysReward(row, group))
+
+  if (!availableRows.length) return ''
+
+  const body = availableRows
+    .map((row) => renderAccountMysRow(row, group))
+    .join('\n')
+
+  return `
+    <div style="font-size: 13px; font-weight: bold; color: #2e8b57; text-align: center; margin: 8px 0 5px;">
+      米游社结果
+    </div>
+    <table border="1" cellpadding="0" cellspacing="0" style="border-collapse: collapse; width: 100%; border: 1px solid #2e8b57; table-layout: fixed; margin: 0 auto 10px;">
       <thead>
-        <tr style="background-color: ${color}; color: white;">
+        <tr style="background-color: #2e8b57; color: white;">
           <th style="padding: 7px 4px; text-align: center; width: 20%; font-size: 12px;">游戏</th>
           <th style="padding: 7px 4px; text-align: center; width: 22%; font-size: 12px;">签到结果</th>
           <th style="padding: 7px 4px; text-align: center; width: 22%; font-size: 12px;">累计天数</th>
@@ -108,19 +329,100 @@ function renderSection({ title, color, rows }) {
       <tbody>
         ${body}
       </tbody>
-    </table>`
+    </table>
+  `
+}
+
+/**
+ * 渲染账号下的云游戏结果表
+ *
+ * 列：
+ * 游戏 | 签到结果 | 领取后免费时长 | 领取时长
+ */
+function renderAccountCloudTable(rows = [], group) {
+  const availableRows = rows.filter((row) => findCloudReward(row, group))
+
+  if (!availableRows.length) return ''
+
+  const body = availableRows
+    .map((row) => renderAccountCloudRow(row, group))
+    .join('\n')
+
+  return `
+    <div style="font-size: 13px; font-weight: bold; color: #1e90ff; text-align: center; margin: 8px 0 5px;">
+      云游戏结果
+    </div>
+    <table border="1" cellpadding="0" cellspacing="0" style="border-collapse: collapse; width: 100%; border: 1px solid #1e90ff; table-layout: fixed; margin: 0 auto 14px;">
+      <thead>
+        <tr style="background-color: #1e90ff; color: white;">
+          <th style="padding: 7px 4px; text-align: center; width: 22%; font-size: 12px;">游戏</th>
+          <th style="padding: 7px 4px; text-align: center; width: 24%; font-size: 12px;">签到结果</th>
+          <th style="padding: 7px 4px; text-align: center; width: 27%; font-size: 12px;">领取后免费时长</th>
+          <th style="padding: 7px 4px; text-align: center; width: 27%; font-size: 12px;">领取时长</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${body}
+      </tbody>
+    </table>
+  `
+}
+
+/**
+ * 渲染单个账号区块
+ */
+function renderAccountBlock(group, mysRows = [], cloudRows = []) {
+  const accountName = getAccountDisplayName(group, mysRows)
+  const maskedPassportId = getGroupMaskedPassportId(group, mysRows, cloudRows)
+
+  return `
+    <div style="margin-top: 16px; padding-top: 8px; border-top: 1px dashed #ddd;">
+      <div style="text-align: center; font-size: 15px; font-weight: bold; color: #333; margin: 4px 0 3px;">
+        ${escapeHtml(accountName)}
+      </div>
+
+      ${
+        maskedPassportId
+          ? `<div style="text-align: center; font-size: 11px; color: #777; margin: 0 0 10px;">
+              id: ${escapeHtml(maskedPassportId)}
+            </div>`
+          : ''
+      }
+
+      ${renderAccountMysTable(mysRows, group)}
+      ${renderAccountCloudTable(cloudRows, group)}
+    </div>
+  `
+}
+
+/**
+ * 渲染按账号分组区域
+ */
+function renderGroupedAccountSection({ mysRows, cloudRows, titleInfo }) {
+  const groups = collectAccountGroups(mysRows, cloudRows)
+
+  if (!groups.length) return ''
+
+  const body = groups
+    .map((group) => renderAccountBlock(group, mysRows, cloudRows))
+    .join('\n')
+
+  return `
+    <h3 style="color: ${titleInfo.sectionColor}; text-align: center; margin-top: 18px; margin-bottom: 8px; font-size: 16px;">
+      ${escapeHtml(titleInfo.sectionTitle)}
+    </h3>
+    ${body}
+  `
 }
 
 /**
  * 生成完整 HTML
  */
 export function renderHtml({ execTime, mysRows, cloudRows }) {
-  const sections = [
-    renderSection({ title: '🏠 米游社签到', color: '#2e8b57', rows: mysRows }),
-    renderSection({ title: '☁️ 云游戏签到', color: '#1e90ff', rows: cloudRows }),
-  ].filter(Boolean)
+  const titleInfo = getReportTitleInfo(mysRows, cloudRows)
+  const groupedSection = renderGroupedAccountSection({ mysRows, cloudRows, titleInfo })
 
-  const emptyMessage = sections.length === 0
+  const emptyMessage = !groupedSection
     ? `<div style="padding: 14px; background-color: #f8f9fa; border: 1px solid #ddd; text-align: center; margin-top: 16px; font-size: 13px;">本次没有可显示的签到任务。</div>`
     : ''
 
@@ -128,17 +430,17 @@ export function renderHtml({ execTime, mysRows, cloudRows }) {
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <title>米游社签到结果总结</title>
+  <title>${escapeHtml(titleInfo.pageTitle)}</title>
 </head>
 <body style="margin: 0; padding: 12px; font-family: Arial, Helvetica, sans-serif; color: #333;">
   <div style="max-width: 680px; margin: 0 auto;">
     <h2 style="color: #4a90e2; text-align: center; font-size: 18px; margin: 8px 0 10px;">
-      📊 米游社签到结果总结
+      ${escapeHtml(titleInfo.mainTitle)}
     </h2>
     <p style="text-align: center; font-size: 12px; margin: 0 0 12px;">
       <strong>🕒 执行时间：</strong> ${escapeHtml(execTime)}
     </p>
-    ${sections.join('\n')}
+    ${groupedSection}
     ${emptyMessage}
     <p style="text-align: center; margin-top: 16px; font-size: 11px; color: #777;">
       签到完成 · 感谢使用
