@@ -135,8 +135,13 @@ Cookie1,Cookie2,Cookie3
 
 ```js
 const cookie = document.cookie
-const ask = confirm('Cookie:' + cookie + '\n\n是否复制到剪贴板？')
-if (ask) copy(cookie)
+const ask = confirm('Cookie:' + cookie + '\n\nDo you want to copy the cookie to the clipboard?')
+if (ask == true) {
+  copy(cookie)
+  msg = cookie
+} else {
+  msg = 'Cancel'
+}
 ```
 
 4. 将复制的 Cookie 值填入仓库 Secrets：
