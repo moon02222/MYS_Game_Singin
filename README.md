@@ -86,22 +86,22 @@ MYS_Game_Signin/
 
 | Secret 名称 | 说明 | 是否必填 |
 |---|---|---|
-| MYS_COOKIES | 米游社 Cookie（用于米游社签到） | 米游社签到必填 |
-| GENSHIN_TOKENS | 云原神 Token（仅用于云原神） | 云原神签到必填 |
-| STARRAIL_TOKENS | 云崩铁 Token（仅用于云崩铁） | 云崩铁签到必填 |
-| MAIL_TO | 收件邮箱（多个用逗号隔开） | 邮件推送必填 |
-| SMTP_SERVER | SMTP 服务器地址 | 邮件推送必填 |
-| SMTP_PORT | SMTP 端口（通常 465 或 587） | 邮件推送必填 |
-| SMTP_USERNAME | SMTP 用户名 / 发件邮箱 | 邮件推送必填 |
-| SMTP_PASSWORD | SMTP 授权码 / 应用专用密码 | 邮件推送必填 |
+| `MYS_COOKIES` | 米游社 Cookie（用于米游社签到） | 米游社签到必填 |
+| `GENSHIN_TOKENS` | 云原神 Token（仅用于云原神） | 云原神签到必填 |
+| `STARRAIL_TOKENS` | 云崩铁 Token（仅用于云崩铁） | 云崩铁签到必填 |
+| `MAIL_TO` | 收件邮箱（多个用逗号隔开） | 邮件推送必填 |
+| `SMTP_SERVER` | SMTP 服务器地址 | 邮件推送必填 |
+| `SMTP_PORT` | SMTP 端口（通常 465 或 587） | 邮件推送必填 |
+| `SMTP_USERNAME` | SMTP 用户名 / 发件邮箱 | 邮件推送必填 |
+| `SMTP_PASSWORD` | SMTP 授权码 / 应用专用密码 | 邮件推送必填 |
 
 可选：
 
 | Secret 名称 | 说明 |
 |---|---|
-| MYS_DEVICE_ID | 米游社固定设备 ID（建议固定） |
-| MIHOYO_DEVICE_ID | 云游戏固定设备 ID |
-| MIHOYO_CLOUD_DEVICE_ID | 云游戏备用设备 ID |
+| `MYS_DEVICE_ID` | 米游社固定设备 ID（建议固定） |
+| `MIHOYO_DEVICE_ID` | 云游戏固定设备 ID |
+| `MIHOYO_CLOUD_DEVICE_ID` | 云游戏备用设备 ID |
 
 不填写时脚本会生成临时设备 ID，但建议填写以避免设备 ID 频繁变化导致异常。
 
