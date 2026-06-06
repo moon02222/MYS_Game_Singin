@@ -68,7 +68,7 @@
 ## 项目结构
 
 ```text
-MYS_Game_Singin/
+MYS_Game_Signin/
 ├─ .github/
 │  └─ workflows/
 │     └─ run.yml
@@ -395,8 +395,8 @@ package-lock.json
 ### 2. Clone 项目
 
 ```sh
-git clone https://github.com/GildedFlames/MYS_Game_Singin.git
-cd MYS_Game_Singin
+git clone https://github.com/GildedFlames/MYS_Game_Signin.git
+cd MYS_Game_Signin
 ```
 
 ### 3. 安装依赖
