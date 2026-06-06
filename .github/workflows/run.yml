@@ -40,7 +40,7 @@ jobs:
         run: npm ci --ignore-scripts
 
       # 将非空敏感变量加入 GitHub Actions mask，降低日志泄露风险
-      # SMTP_PASSWORD 不在这里处理，只在发送邮件步骤中使用
+      # 会同时 mask 原始完整 Secret，以及按换行 / 英文逗号拆分后的每个账号值
       - name: Mask secrets
         env:
           MYS_COOKIES: ${{ secrets.MYS_COOKIES }}
@@ -49,30 +49,43 @@ jobs:
           MYS_DEVICE_ID: ${{ secrets.MYS_DEVICE_ID }}
           MIHOYO_DEVICE_ID: ${{ secrets.MIHOYO_DEVICE_ID }}
           MIHOYO_CLOUD_DEVICE_ID: ${{ secrets.MIHOYO_CLOUD_DEVICE_ID }}
+        shell: bash
         run: |
-          if [ -n "$MYS_COOKIES" ]; then
-            echo "::add-mask::$MYS_COOKIES"
-          fi
+          mask_value() {
+            local value="$1"
 
-          if [ -n "$GENSHIN_TOKENS" ]; then
-            echo "::add-mask::$GENSHIN_TOKENS"
-          fi
+            if [ -n "$value" ]; then
+              echo "::add-mask::$value"
+            fi
+          }
 
-          if [ -n "$STARRAIL_TOKENS" ]; then
-            echo "::add-mask::$STARRAIL_TOKENS"
-          fi
+          mask_list() {
+            local value="$1"
 
-          if [ -n "$MYS_DEVICE_ID" ]; then
-            echo "::add-mask::$MYS_DEVICE_ID"
-          fi
+            if [ -z "$value" ]; then
+              return
+            fi
 
-          if [ -n "$MIHOYO_DEVICE_ID" ]; then
-            echo "::add-mask::$MIHOYO_DEVICE_ID"
-          fi
+            # 先 mask 原始完整值
+            mask_value "$value"
 
-          if [ -n "$MIHOYO_CLOUD_DEVICE_ID" ]; then
-            echo "::add-mask::$MIHOYO_CLOUD_DEVICE_ID"
-          fi
+            # 再按英文逗号和换行拆分，逐个 mask
+            echo "$value" | tr ',' '\n' | while IFS= read -r item; do
+              item="$(echo "$item" | xargs)"
+
+              if [ -n "$item" ]; then
+                echo "::add-mask::$item"
+              fi
+            done
+          }
+
+          mask_list "$MYS_COOKIES"
+          mask_list "$GENSHIN_TOKENS"
+          mask_list "$STARRAIL_TOKENS"
+
+          mask_value "$MYS_DEVICE_ID"
+          mask_value "$MIHOYO_DEVICE_ID"
+          mask_value "$MIHOYO_CLOUD_DEVICE_ID"
 
       # 执行主脚本，并将所有输出写入 output.log
       - name: Run main.js
