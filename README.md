@@ -37,7 +37,7 @@
 ## 项目结构
 
 ```text
-MYS_Game_Singin/
+MYS_Game_Signin/
 ├─ .github/
 │  └─ workflows/
 │     └─ run.yml
