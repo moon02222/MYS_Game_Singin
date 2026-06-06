@@ -18,6 +18,7 @@ export function maskSensitive(text) {
     .replace(/(account_id_v2=)\d+/gi, '$1***')
     .replace(/(account_mid_v2=)[^;,\s]+/gi, '$1***')
     .replace(/(login_uid=)\d+/gi, '$1***')
+    .replace(/(oi=)\d+/gi, '$1***')
     .replace(/(login_ticket=)[^;,\s]+/gi, '$1***')
     .replace(/(mid=)[^;,\s]+/gi, '$1***')
 
