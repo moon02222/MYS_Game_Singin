@@ -3,14 +3,8 @@
  */
 function escapeHtml(value) {
   return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-}
-
-/**
+')
+</ .replace(/ '&quot;replace, '&#39;**
  * 根据 Summary 生成状态文本
  */
 function renderStatus(summary) {
@@ -267,19 +261,28 @@ function renderAccountCloudRow(row, group) {
   const status = reward ? '✅ 成功' : renderStatus(row.summary)
 
   /**
-   * 云游戏页面通常显示的是免费时长。
+   * 云游戏页面显示的是免费时长。
    *
-   * 优先显示 afterFreeTimeText：
-   * - 新日志：afterFreeTimeText 来自 free_time.free_time
+   * 优先使用：
+   * - afterFreeTimeText：来自 free_time.free_time，单位按分钟处理
    *
    * 兼容旧日志：
-   * - 如果旧日志没有 afterFreeTimeText，则回退到 afterTotalTimeText
+   * - afterTotalTimeText
+   * - afterFreeTimeText 不存在时才回退
    */
   const afterTime =
     reward?.afterFreeTimeText ||
     reward?.afterTotalTimeText ||
     '—'
 
+  /**
+   * 本次领取时长。
+   *
+   * 由 src/MihoyoCloud/index.js 里计算：
+   * afterWallet.freeTime - beforeWallet.freeTime
+   *
+   * 单位同样按分钟处理。
+   */
   const claimedTime = reward?.claimedTimeText || '—'
 
   return `
@@ -433,9 +436,8 @@ export function renderHtml({ execTime, mysRows, cloudRows }) {
 </head>
 <body style="margin: 0; padding: 12px; font-family: Arial, Helvetica, sans-serif; color: #333;">
   <div style="max-width: 680px; margin: 0 auto;">
-    <h2 style="color: #4a90e2; text-align: center; font-size: 18px; margin: 8px 0 10px;">
-      ${escapeHtml(titleInfo.mainTitle)}
-    </h2>
+    <h2colora2::;pxpx ${(title.mainTitle)}
+    </2>
     <p style="text-align: center; font-size: 12px; margin: 0 0 12px;">
       <strong>🕒 执行时间：</strong> ${escapeHtml(execTime)}
     </p>
