@@ -51,6 +51,7 @@ function extractFromKeyValueText(text) {
     'userid',
     'aid',
     'ai',
+    'oi',
   ]
 
   for (const key of keys) {
