@@ -175,10 +175,14 @@ function formatCloudTime(seconds) {
  *   totalTimeText: string
  * }
  *
- * 说明：
- * - freeTime 来自 free_time.free_time
- * - totalTime 来自 total_time
- * - 邮件展示“领取后时长”使用 totalTime 更准确
+ * 字段说明：
+ * - freeTime 来自 data.free_time.free_time
+ *   通常更接近云游戏页面显示的免费时长
+ *
+ * - totalTime 来自 data.total_time
+ *   可能包含其它类型时长，仅保留用于排查
+ *
+ * 邮件展示建议使用 freeTime。
  */
 async function getWallet(gameKey, token) {
   const config = getGameConfig(gameKey)
@@ -190,10 +194,11 @@ async function getWallet(gameKey, token) {
     })
 
     const walletData = res?.data?.data
+
     const freeTime = Number(walletData?.free_time?.free_time ?? 0)
     const totalTime = Number(walletData?.total_time ?? 0)
 
-    if (res?.data?.message === 'OK' && walletData?.free_time) {
+    if (res?.data?.message === 'OK' && walletData) {
       console.log(
         `[${config.name}] Get wallet success! free_time: ${freeTime} (${formatCloudTime(freeTime)}), total_time: ${totalTime} (${formatCloudTime(totalTime)})`
       )
@@ -330,7 +335,10 @@ async function ackNotifications(gameKey, token, id) {
  * - 不输出完整通行证 ID
  * - passportHash 用于同账号匹配
  * - passportMasked 用于邮件展示
- * - 邮件里的领取后时长使用 afterTotalTimeText
+ *
+ * 字段说明：
+ * - afterFreeTimeText 用于邮件主展示
+ * - afterTotalTimeText 仅保留用于排查或兼容旧展示
  */
 function logCloudReward(gameName, tokenIndex, token, beforeWallet, afterWallet, claimedTime) {
   const safePassportInfo = getSafePassportInfo(token)
@@ -342,7 +350,8 @@ function logCloudReward(gameName, tokenIndex, token, beforeWallet, afterWallet, 
       passportMasked: safePassportInfo.passportMasked,
 
       /**
-       * freeTime 保留用于排查
+       * 免费时长：
+       * 邮件展示优先使用 afterFreeTimeText
        */
       beforeFreeTime: beforeWallet.freeTime,
       afterFreeTime: afterWallet.freeTime,
@@ -350,7 +359,8 @@ function logCloudReward(gameName, tokenIndex, token, beforeWallet, afterWallet, 
       afterFreeTimeText: afterWallet.freeTimeText,
 
       /**
-       * totalTime 用于邮件展示和领取时长计算
+       * 总时长：
+       * 仅用于排查，可能包含其它时长，不建议作为邮件主展示
        */
       beforeTotalTime: beforeWallet.totalTime,
       afterTotalTime: afterWallet.totalTime,
@@ -358,7 +368,8 @@ function logCloudReward(gameName, tokenIndex, token, beforeWallet, afterWallet, 
       afterTotalTimeText: afterWallet.totalTimeText,
 
       /**
-       * 本次领取时长
+       * 本次领取时长：
+       * 使用免费时长差值计算
        */
       claimedTime,
       claimedTimeText: formatCloudTime(claimedTime),
@@ -446,17 +457,19 @@ async function doCloudSign(gameKey) {
     /**
      * 计算领取时长
      *
-     * 使用 totalTime 计算更准确：
-     * - 领取后时长 = afterWallet.totalTime
-     * - 领取时长 = afterWallet.totalTime - beforeWallet.totalTime
+     * 使用 freeTime 计算：
+     * - 领取后免费时长 = afterWallet.freeTime
+     * - 领取时长 = afterWallet.freeTime - beforeWallet.freeTime
+     *
+     * totalTime 只保留用于排查。
      */
     const claimedTime =
       beforeWallet.ok && afterWallet.ok
-        ? Math.max(0, afterWallet.totalTime - beforeWallet.totalTime)
+        ? Math.max(0, afterWallet.freeTime - beforeWallet.freeTime)
         : 0
 
     console.log(
-      `[${config.name}] User ${tokenIndex + 1} cloud time result: before=${beforeWallet.totalTimeText}, after=${afterWallet.totalTimeText}, claimed=${formatCloudTime(claimedTime)}`
+      `[${config.name}] User ${tokenIndex + 1} cloud time result: before=${beforeWallet.freeTimeText}, after=${afterWallet.freeTimeText}, claimed=${formatCloudTime(claimedTime)}`
     )
 
     logCloudReward(config.name, tokenIndex, token, beforeWallet, afterWallet, claimedTime)
