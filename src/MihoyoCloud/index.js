@@ -5,6 +5,7 @@ import {
   parseTokenList,
   maskSensitive,
   formatAxiosError,
+  getSafePassportInfo,
 } from '../utils/index.js'
 
 /**
@@ -132,7 +133,47 @@ async function requestWithToken(gameKey, token, options) {
 }
 
 /**
+ * 格式化云游戏时长
+ *
+ * 云游戏接口里的时长通常是秒。
+ */
+function formatCloudTime(seconds) {
+  const value = Number(seconds || 0)
+
+  if (!Number.isFinite(value) || value <= 0) {
+    return '0分钟'
+  }
+
+  if (value < 60) {
+    return `${Math.floor(value)}秒`
+  }
+
+  const totalMinutes = Math.floor(value / 60)
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+
+  if (hours > 0 && minutes > 0) {
+    return `${hours}小时${minutes}分钟`
+  }
+
+  if (hours > 0) {
+    return `${hours}小时`
+  }
+
+  return `${minutes}分钟`
+}
+
+/**
  * 查询钱包信息
+ *
+ * 返回结构：
+ * {
+ *   ok: boolean,
+ *   freeTime: number,
+ *   totalTime: number,
+ *   freeTimeText: string,
+ *   totalTimeText: string
+ * }
  */
 async function getWallet(gameKey, token) {
   const config = getGameConfig(gameKey)
@@ -143,11 +184,22 @@ async function getWallet(gameKey, token) {
       url: `${config.baseURL}/wallet/wallet/get`,
     })
 
-    if (res?.data?.message === 'OK' && res.data.data?.free_time) {
+    const walletData = res?.data?.data
+    const freeTime = Number(walletData?.free_time?.free_time ?? 0)
+    const totalTime = Number(walletData?.total_time ?? 0)
+
+    if (res?.data?.message === 'OK' && walletData?.free_time) {
       console.log(
-        `[${config.name}] Get wallet success! free_time: ${res.data.data.free_time.free_time}, total_time: ${res.data.data.total_time}`
+        `[${config.name}] Get wallet success! free_time: ${freeTime} (${formatCloudTime(freeTime)}), total_time: ${totalTime} (${formatCloudTime(totalTime)})`
       )
-      return true
+
+      return {
+        ok: true,
+        freeTime,
+        totalTime,
+        freeTimeText: formatCloudTime(freeTime),
+        totalTimeText: formatCloudTime(totalTime),
+      }
     }
 
     console.error(
@@ -159,10 +211,23 @@ async function getWallet(gameKey, token) {
       )}`
     )
 
-    return false
+    return {
+      ok: false,
+      freeTime: 0,
+      totalTime: 0,
+      freeTimeText: '0分钟',
+      totalTimeText: '0分钟',
+    }
   } catch (err) {
     console.error(`[${config.name}] Get wallet error: ${formatAxiosError(err)}`)
-    return false
+
+    return {
+      ok: false,
+      freeTime: 0,
+      totalTime: 0,
+      freeTimeText: '0分钟',
+      totalTimeText: '0分钟',
+    }
   }
 }
 
@@ -171,8 +236,8 @@ async function getWallet(gameKey, token) {
  *
  * 返回结构：
  * {
- *   ok: boolean,   // 接口是否请求成功
- *   list: Array    // 通知列表
+ *   ok: boolean,
+ *   list: Array
  * }
  */
 async function getNotifications(gameKey, token) {
@@ -254,6 +319,32 @@ async function ackNotifications(gameKey, token, id) {
 }
 
 /**
+ * 输出云游戏时长结果日志，供邮件摘要解析
+ *
+ * 注意：
+ * - 不输出完整通行证 ID
+ * - passportHash 用于同账号匹配
+ * - passportMasked 用于邮件展示
+ */
+function logCloudReward(gameName, tokenIndex, token, beforeWallet, afterWallet, claimedTime) {
+  const safePassportInfo = getSafePassportInfo(token)
+
+  console.log(
+    `[${gameName}] CloudReward: ${JSON.stringify({
+      user: tokenIndex + 1,
+      passportHash: safePassportInfo.passportHash,
+      passportMasked: safePassportInfo.passportMasked,
+      beforeFreeTime: beforeWallet.freeTime,
+      afterFreeTime: afterWallet.freeTime,
+      claimedTime,
+      beforeFreeTimeText: beforeWallet.freeTimeText,
+      afterFreeTimeText: afterWallet.freeTimeText,
+      claimedTimeText: formatCloudTime(claimedTime),
+    })}`
+  )
+}
+
+/**
  * 云游戏签到入口
  */
 async function doCloudSign(gameKey) {
@@ -285,11 +376,11 @@ async function doCloudSign(gameKey) {
     let userFailed = false
 
     /**
-     * 第一次查询钱包
+     * 领取前查询钱包
      */
-    const walletOk = await getWallet(gameKey, token)
+    const beforeWallet = await getWallet(gameKey, token)
 
-    if (!walletOk) {
+    if (!beforeWallet.ok) {
       userFailed = true
     }
 
@@ -297,6 +388,8 @@ async function doCloudSign(gameKey) {
      * 查询未读通知
      */
     const notificationsResult = await getNotifications(gameKey, token)
+
+    let afterWallet = beforeWallet
 
     if (!notificationsResult.ok) {
       userFailed = true
@@ -312,16 +405,30 @@ async function doCloudSign(gameKey) {
       }
 
       /**
-       * ACK 后再次查询钱包，并将结果计入失败判断
+       * ACK 后再次查询钱包
        */
-      const walletAfterAckOk = await getWallet(gameKey, token)
+      afterWallet = await getWallet(gameKey, token)
 
-      if (!walletAfterAckOk) {
+      if (!afterWallet.ok) {
         userFailed = true
       }
     } else {
       console.log(`[${config.name}] No unread notifications`)
     }
+
+    /**
+     * 计算领取时长
+     */
+    const claimedTime =
+      beforeWallet.ok && afterWallet.ok
+        ? Math.max(0, afterWallet.freeTime - beforeWallet.freeTime)
+        : 0
+
+    console.log(
+      `[${config.name}] User ${tokenIndex + 1} cloud time result: before=${beforeWallet.freeTimeText}, after=${afterWallet.freeTimeText}, claimed=${formatCloudTime(claimedTime)}`
+    )
+
+    logCloudReward(config.name, tokenIndex, token, beforeWallet, afterWallet, claimedTime)
 
     if (userFailed) {
       failed++
