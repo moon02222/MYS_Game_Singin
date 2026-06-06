@@ -29,7 +29,7 @@ const $axios = axios.create({
  */
 function getTokenConfig() {
   const genshinTokens = process.env.GENSHIN_TOKENS
-  const starRailTokens = process.env.STARRIL_TOKENS || process.env.STARRAIL_TOKENS
+  const starRailTokens = process.env.STARRAIL_TOKENS
 
   if (!genshinTokens && !starRailTokens) {
     console.info('[云游戏] No cloud game tokens configured, skip cloud tasks.')
@@ -178,7 +178,7 @@ function formatCloudTime(seconds) {
  * 说明：
  * - freeTime 来自 free_time.free_time
  * - totalTime 来自 total_time
- * - 邮件展示“领取后时长”建议使用 totalTime
+ * - 邮件展示“领取后时长”使用 totalTime 更准确
  */
 async function getWallet(gameKey, token) {
   const config = getGameConfig(gameKey)
@@ -193,7 +193,9 @@ async function getWallet(gameKey, token) {
     const freeTime = Number(walletData?.free_time?.free_time ?? 0)
     const totalTime = Number(walletData?.total_time ?? 0)
 
-    if (res?.data?.message === 'OK' && walletData?.free)      console.log${config.name}] Get wallet success! free_time: ${freeTime} (${formatCloudTime(freeTime ${totalTime} (${formatCloudTime(totalTime)})`
+    if (res?.data?.message === 'OK' && walletData?.free_time) {
+      console.log(
+        `[${config.name}] Get wallet success! free_time: ${freeTime} (${formatCloudTime(freeTime)}), total_time: ${totalTime} (${formatCloudTime(totalTime)})`
       )
 
       return {
@@ -202,11 +204,14 @@ async function getWallet(gameKey, token) {
         totalTime,
         freeTimeText: formatCloudTime(freeTime),
         totalTimeText: formatCloudTime(totalTime),
+      }
     }
 
- console.error(
-      `[${config.name}] Get wallet({
-?.ret          message: res?.data?.message,
+    console.error(
+      `[${config.name}] Get wallet failed: ${maskSensitive(
+        JSON.stringify({
+          retcode: res?.data?.retcode,
+          message: res?.data?.message,
         })
       )}`
     )
@@ -214,25 +219,74 @@ async function getWallet(gameKey, token) {
     return {
       ok: false,
       freeTime: 0,
-      total      freeTimeText:分钟      totalText: '0分钟',
+      totalTime: 0,
+      freeTimeText: '0分钟',
+      totalTimeText: '0分钟',
     }
   } catch (err) {
-    console.error(`[${config.name}] Get wallet error: ${formatAxiosError(err))
+    console.error(`[${config.name}] Get wallet error: ${formatAxiosError(err)}`)
 
-    ,
-0      totalTimeText0',
- }
+    return {
+      ok: false,
+      freeTime: 0,
+      totalTime: 0,
+      freeTimeText: '0分钟',
+      totalTimeText: '0分钟',
+    }
+  }
+}
 
-/ * list * }
- const config(game, ' urlconfig })
+/**
+ * 查询未读弹窗通知
+ *
+ * 返回结构：
+ * {
+ *   ok: boolean,
+ *   list: Array
+ * }
+ */
+async function getNotifications(gameKey, token) {
+  const config = getGameConfig(gameKey)
 
-    if (res?.datamessage === 'OK &&.is      = count     : }
+  try {
+    const res = await requestWithToken(gameKey, token, {
+      method: 'GET',
+      url: `${config.baseURL}/gamer/api/listNotifications?status=NotificationStatusUnread&type=NotificationTypePopup&is_sort=true`,
+    })
+
+    if (res?.data?.message === 'OK' && Array.isArray(res.data.data?.list)) {
+      const list = res.data.data.list
+
+      console.log(`[${config.name}] Get notifications success! count: ${list.length}`)
+
+      return {
+        ok: true,
+        list,
+      }
     }
 
-    console.error JSON return {
-${ Get errorformat(err)}`)
+    console.error(
+      `[${config.name}] Get notifications failed: ${maskSensitive(
+        JSON.stringify({
+          retcode: res?.data?.retcode,
+          message: res?.data?.message,
+        })
+      )}`
+    )
 
-    return      false }
+    return {
+      ok: false,
+      list: [],
+    }
+  } catch (err) {
+    console.error(`[${config.name}] Get notifications error: ${formatAxiosError(err)}`)
+
+    return {
+      ok: false,
+      list: [],
+    }
+  }
+}
 
 /**
  * 确认通知
@@ -276,7 +330,7 @@ async function ackNotifications(gameKey, token, id) {
  * - 不输出完整通行证 ID
  * - passportHash 用于同账号匹配
  * - passportMasked 用于邮件展示
- * - 邮件里的领取后时长建议使用 afterTotalTimeText
+ * - 邮件里的领取后时长使用 afterTotalTimeText
  */
 function logCloudReward(gameName, tokenIndex, token, beforeWallet, afterWallet, claimedTime) {
   const safePassportInfo = getSafePassportInfo(token)
