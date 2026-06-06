@@ -1,67 +1,36 @@
 # 米游社、米家云游戏签到脚本 Node.js 版
 
-支持多账号的米游社、云原神、云崩铁自动签到脚本，并支持通过 GitHub Actions 定时运行和邮箱推送签到结果。
+支持多账号的米游社、云原神、云崩铁自动签到脚本，并支持 GitHub Actions 定时运行和邮箱推送签到结果。
 
 ---
 
-## 简介
+## 功能
 
-本项目是一个用于自动签到以下服务的 Node.js 脚本：
+- 米游社签到
+  - 原神
+  - 崩坏：星穹铁道
+  - 绝区零
 
-- 米游社原神签到
-- 米游社崩坏：星穹铁道签到
-- 米游社绝区零签到
-- 云原神签到 / 领取奖励
-- 云崩铁签到 / 领取奖励
-- 邮箱推送签到结果
+- 云游戏签到 / 领取免费时长
+  - 云原神
+  - 云崩铁
 
-支持多账号，可以本地运行，也可以通过 GitHub Actions 自动定时运行。
+- 多账号支持
 
----
+- GitHub Actions 自动运行
 
-## 功能特性
+- 邮件推送 HTML 签到结果
 
-- **米游社签到**
-  - 支持原神
-  - 支持崩坏：星穹铁道
-  - 米游社绝区零
-
-- **云游戏签到**
-  - 支持云原神
-  - 支持云崩铁
-
-- **GitHub Actions 自动运行**
-  - 支持每天定时执行
-  - 支持手动触发执行
-
-- **邮箱推送**
-  - 执行完成后自动推送 HTML 格式签到结果
-  - 支持 SMTP 邮箱发送
-  - 支持失败时也发送邮件
-
-- **安全性优化**
-  - 使用 GitHub Secrets 保存 Cookie、Token 和邮箱授权码
-  - 日志中尽量避免输出敏感信息
-  - 对 Cookie、Token、Authorization 等内容做脱敏处理
-  - GitHub Actions 使用最小权限 `contents: read`
-  - 默认不上传 `output.log`
-  - 默认不把原始日志写入邮件正文
-
-- **自动跳过未配置功能**
-  - 未配置云原神 Token 时，自动跳过云原神
-  - 未配置云崩铁 Token 时，自动跳过云崩铁
-  - 未配置米游社 Cookie 时，自动跳过米游社签到
-  - 未配置邮箱时，不发送邮件
+- 自动跳过未配置的任务
 
 ---
 
 ## 免责声明
 
-本脚本仅供交流测试使用。  
-因使用本脚本而产生的任何问题，作者概不负责。
+本项目仅供交流测试使用。  
+因使用本项目造成的任何问题，作者概不负责。
 
-官方可能更改接口导致脚本失效，脚本失效会尽快更新，但不保证第一时间。  
-请低调使用，如不同意，请关闭并停止使用。
+请低调使用，如不同意，请停止使用。
 
 ---
 
@@ -72,13 +41,31 @@ MYS_Game_Singin/
 ├─ .github/
 │  └─ workflows/
 │     └─ run.yml
+│
 ├─ scripts/
-│  └─ generate-summary.js
+│  └─ summary/
+│     ├─ config.js
+│     ├─ index.js
+│     ├─ parser.js
+│     └─ renderer.js
+│
 ├─ src/
 │  ├─ MYS/
+│  │  ├─ actId.js
+│  │  ├─ actIdInvalid.js
 │  │  └─ index.js
-│  └─ MihoyoCloud/
-│     └─ index.js
+│  │
+│  ├─ MihoyoCloud/
+│  │  └─ index.js
+│  │
+│  └─ utils/
+│     ├─ error.js
+│     ├─ index.js
+│     ├─ mask.js
+│     ├─ parser.js
+│     ├─ passport.js
+│     └─ sleep.js
+│
 ├─ main.js
 ├─ package.json
 ├─ package-lock.json
@@ -90,17 +77,10 @@ MYS_Game_Singin/
 
 ## 环境要求
 
-### GitHub Actions 运行
-
-- GitHub 仓库
-- GitHub Actions
-- GitHub Secrets
-- Node.js 22
-
-### 本地运行
-
 - Node.js 22 或更高版本
 - npm
+- GitHub Actions, 可选
+- SMTP 邮箱, 可选
 
 ---
 
@@ -289,17 +269,36 @@ Value: 复制到的 Cookie
 ## 获取 Token 方式 - 云游戏签到必需
 
 1. **打开浏览器**:
-   - 打开你的浏览器，进入无痕/隐身模式。
+- 打开你的浏览器，进入无痕/隐身模式。
    
 2. **登录云游戏**:
-   - 访问 [云原神](https://ys.mihoyo.com/cloud/#/) 和 [云崩铁](https://sr.mihoyo.com/cloud/#/)。原神崩铁Token不通用！
+- 访问 [云原神](https://ys.mihoyo.com/cloud/#/) 和 [云崩铁](https://sr.mihoyo.com/cloud/#/)。原神崩铁Token不通用！
    
 3. **获取 Token**:
-   - 按下键盘上的 `F12` 或右键点击页面选择“检查”，打开开发者工具。
-   - 切换到“Network”选项卡
-   - 在XHR请求中找到一条 `Request Headers` 中含有 `x-rpc-combo_token` 字段的请求。
-   - 选中并复制`x-rpc-combo_token`的值，此时 Token 已经复制到你的剪贴板。
+- 按下键盘上的 `F12` 或右键点击页面选择“检查”，打开开发者工具。
+- 切换到“Network”选项卡
+- 在XHR请求中找到一条 `Request Headers` 中含有 `x-rpc-combo_token` 字段的请求。
+- 选中并复制`x-rpc-combo_token`的值，此时 Token 已经复制到你的剪贴板。
 
+---
+
+## 多账号配置
+
+多个 Cookie / Token 支持:
+
+-换行分隔
+-英文逗号分隔
+示例:
+
+```text
+Cookie1
+Cookie2
+Cookie3
+```
+或
+```text
+Cookie1,Cookie2,Cookie3
+```
 
 ---
 
@@ -395,8 +394,8 @@ package-lock.json
 ### 2. Clone 项目
 
 ```sh
-git clone https://github.com/GildedFlames/MYS_Game_Singin.git
-cd MYS_Game_Singin
+git clone https://github.com/GildedFlames/MYS_Game_Signin.git
+cd MYS_Game_Signin
 ```
 
 ### 3. 安装依赖
@@ -447,6 +446,7 @@ node main.js
 ```text
 output.log
 summary.html
+summary-title.txt
 ```
 
 这些文件已经在 `.gitignore` 中忽略，不建议提交到仓库。
