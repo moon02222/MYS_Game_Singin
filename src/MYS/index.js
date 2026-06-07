@@ -7,6 +7,7 @@ import {
   maskUid,
   formatAxiosError,
   getSafePassportInfo,
+  hashPassportId,
 } from '../utils/index.js'
 import {
   getCurrentActId,
@@ -45,6 +46,20 @@ const DEVICE_ID = process.env.MYS_DEVICE_ID || uuidv4()
 const $axios = axios.create({
   timeout: 15000,
 })
+
+/**
+ * Cookie 配置缓存
+ *
+ * 避免原神 / 星铁 / 绝区零三个任务重复解析 MYS_COOKIES。
+ */
+let COOKIE_CONFIG_CACHE = null
+
+/**
+ * 米游社账号信息缓存
+ *
+ * 避免同一个 Cookie 在多个游戏签到成功后重复请求用户信息接口。
+ */
+const MYS_ACCOUNT_INFO_CACHE = new Map()
 
 /**
  * 游戏配置
@@ -143,20 +158,59 @@ function getGameConfig(gameKey) {
  * 读取 MYS_COOKIES
  */
 function getCookieConfig() {
+  if (COOKIE_CONFIG_CACHE) {
+    return COOKIE_CONFIG_CACHE
+  }
+
   const mysCookies = process.env.MYS_COOKIES
 
   if (!mysCookies) {
     console.info('[米游社] No MYS_COOKIES configured, skip MYS tasks.')
-    return { Genshin: [], StarRail: [], ZZZ: [] }
+
+    COOKIE_CONFIG_CACHE = {
+      Genshin: [],
+      StarRail: [],
+      ZZZ: [],
+    }
+
+    return COOKIE_CONFIG_CACHE
   }
 
   const cookieList = parseCookieList(mysCookies)
 
-  return {
+  COOKIE_CONFIG_CACHE = {
     Genshin: cookieList,
     StarRail: cookieList,
     ZZZ: cookieList,
   }
+
+  return COOKIE_CONFIG_CACHE
+}
+
+/**
+ * 获取 Cookie 缓存 key
+ *
+ * 优先使用 passportHash。
+ * 如果 Cookie 中提取不到通行证 ID，则使用 Cookie 内容 hash 兜底。
+ *
+ * 注意：
+ * - 兜底 key 只用于内存缓存；
+ * - 不输出 Cookie 原文；
+ * - 不写入日志；
+ * - 不写入摘要。
+ */
+function getCookieCacheKey(cookie) {
+  const safeInfo = getSafePassportInfo(cookie)
+
+  if (safeInfo.passportHash) {
+    return `passport:${safeInfo.passportHash}`
+  }
+
+  const cookieHash = hashPassportId(String(cookie || ''))
+
+  return cookieHash
+    ? `cookie:${cookieHash}`
+    : 'cookie:unknown'
 }
 
 /**
@@ -200,6 +254,11 @@ async function getHeaders(cookie, whichHeader) {
 async function getMYSAccountInfo(cookie, gameKey) {
   const game = getGameConfig(gameKey)
   const fallbackSafeInfo = getSafePassportInfo(cookie)
+  const cacheKey = getCookieCacheKey(cookie)
+
+  if (MYS_ACCOUNT_INFO_CACHE.has(cacheKey)) {
+    return MYS_ACCOUNT_INFO_CACHE.get(cacheKey)
+  }
 
   try {
     const res = await $axios.request({
@@ -230,28 +289,40 @@ async function getMYSAccountInfo(cookie, gameKey) {
         console.log(`[${game.name}] MYS account nickname fetched`)
       }
 
-      return {
+      const result = {
         mysNickname,
         passportHash: safeInfoFromResponse.passportHash || fallbackSafeInfo.passportHash,
         passportMasked: safeInfoFromResponse.passportMasked || fallbackSafeInfo.passportMasked,
       }
+
+      MYS_ACCOUNT_INFO_CACHE.set(cacheKey, result)
+
+      return result
     }
 
     console.warn(
       `[${game.name}] Get MYS account info failed: retcode=${data?.retcode}, message=${data?.message}`
     )
 
-    return {
+    const result = {
       mysNickname: '',
       ...fallbackSafeInfo,
     }
+
+    MYS_ACCOUNT_INFO_CACHE.set(cacheKey, result)
+
+    return result
   } catch (err) {
     console.warn(`[${game.name}] Get MYS account info error: ${formatAxiosError(err)}`)
 
-    return {
+    const result = {
       mysNickname: '',
       ...fallbackSafeInfo,
     }
+
+    MYS_ACCOUNT_INFO_CACHE.set(cacheKey, result)
+
+    return result
   }
 }
 
@@ -605,13 +676,21 @@ async function doMYSSign(gameKey) {
 
     if (roleResult.status === 'no_role') {
       noRole++
-      await randomSleep(1, 3)
+
+      if (cookieIndex < cookieList.length - 1) {
+        await randomSleep(1, 3)
+      }
+
       continue
     }
 
     if (roleResult.status === 'failed') {
       failed++
-      await randomSleep(3, 9)
+
+      if (cookieIndex < cookieList.length - 1) {
+        await randomSleep(1, 3)
+      }
+
       continue
     }
 
@@ -636,7 +715,9 @@ async function doMYSSign(gameKey) {
       failed++
     }
 
-    await randomSleep(3, 9)
+    if (cookieIndex < cookieList.length - 1) {
+      await randomSleep(1, 3)
+    }
   }
 
   if (signedTotal === 0 && failed === 0) {

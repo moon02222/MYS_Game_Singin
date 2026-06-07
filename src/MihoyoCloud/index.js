@@ -25,21 +25,40 @@ const $axios = axios.create({
 })
 
 /**
+ * Token 配置缓存
+ *
+ * 避免云原神 / 云崩铁任务重复解析环境变量。
+ */
+let TOKEN_CONFIG_CACHE = null
+
+/**
  * 读取云游戏 Token 配置
  */
 function getTokenConfig() {
+  if (TOKEN_CONFIG_CACHE) {
+    return TOKEN_CONFIG_CACHE
+  }
+
   const genshinTokens = process.env.GENSHIN_TOKENS
   const starRailTokens = process.env.STARRAIL_TOKENS
 
   if (!genshinTokens && !starRailTokens) {
     console.info('[云游戏] No cloud game tokens configured, skip cloud tasks.')
-    return { CloudYS: [], CloudSR: [] }
+
+    TOKEN_CONFIG_CACHE = {
+      CloudYS: [],
+      CloudSR: [],
+    }
+
+    return TOKEN_CONFIG_CACHE
   }
 
-  return {
+  TOKEN_CONFIG_CACHE = {
     CloudYS: parseTokenList(genshinTokens),
     CloudSR: parseTokenList(starRailTokens),
   }
+
+  return TOKEN_CONFIG_CACHE
 }
 
 /**
@@ -483,7 +502,9 @@ async function doCloudSign(gameKey) {
       failed++
     }
 
-    await randomSleep(3, 9)
+    if (tokenIndex < tokenList.length - 1) {
+      await randomSleep(1, 3)
+    }
   }
 
   console.info(`[${config.name}] Sign-in completed\n`)
