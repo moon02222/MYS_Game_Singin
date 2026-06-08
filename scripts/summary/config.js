@@ -2,6 +2,9 @@
  * 米游社任务列表
  */
 export const MYS_TASKS = [
+  { title: '崩坏学园2', label: '崩坏学园2-米游社' },
+  { title: '崩坏3', label: '崩坏3-米游社' },
+  { title: '未定事件簿', label: '未定事件簿-米游社' },
   { title: '原神', label: '原神-米游社' },
   { title: '崩坏：星穹铁道', label: '星穹铁道-米游社' },
   { title: '绝区零', label: '绝区零-米游社' },
