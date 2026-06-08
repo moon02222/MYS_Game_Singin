@@ -9,6 +9,9 @@
 ## 功能
 
 - 米游社签到（使用米游社 Cookie）
+  - 崩坏学园2
+  - 崩坏3
+  - 未定事件薄 
   - 原神
   - 崩坏：星穹铁道
   - 绝区零
@@ -47,9 +50,14 @@ MYS_Game_Signin/
 │
 ├─ src/
 │  ├─ MYS/
+│  │  ├─ index.js
+│  │  ├─ shared.js
+│  │  ├─ LunaCommon/
+│  │  │  └─ index.js
+│  │  ├─ Preview/
+│  │  │  └─ index.js
 │  │  ├─ actId.js
-│  │  ├─ actIdInvalid.js
-│  │  └─ index.js
+│  │  └─ actIdInvalid.js
 │  │
 │  ├─ MihoyoCloud/
 │  │  └─ index.js
