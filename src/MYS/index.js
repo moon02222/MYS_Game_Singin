@@ -1,14 +1,16 @@
-import axios from 'axios'
-import md5 from 'md5'
-import { v4 as uuidv4 } from 'uuid'
+import { randomSleep, maskUid, formatAxiosError } from '../utils/index.js'
 import {
-  randomSleep,
-  parseCookieList,
-  maskUid,
-  formatAxiosError,
-  getSafePassportInfo,
-  hashPassportId,
-} from '../utils/index.js'
+  WEB_HOST,
+  mysAxios,
+  COMMON_HEADERS,
+  SIGN_HEADERS,
+  getHeaders,
+  getCookieList,
+  getRole,
+  getMYSAccountInfo,
+  logReward,
+  hasNextItem,
+} from './shared.js'
 import {
   getCurrentActId,
   fetchLatestActId,
@@ -18,60 +20,7 @@ import {
 } from './actIdInvalid.js'
 
 /**
- * 米游社接口主机
- */
-const WEB_HOST = 'api-takumi.mihoyo.com'
-
-/**
- * 米游社用户信息接口主机
- */
-const BBS_HOST = 'bbs-api.miyoushe.com'
-
-/**
- * 模拟米游社 App 版本
- */
-const APP_VERSION = '2.81.1'
-
-/**
- * 设备 ID
- * 推荐在 GitHub Secrets 中配置 MYS_DEVICE_ID，使其长期固定
- * 如果没有配置，则每次运行临时生成一个
- */
-const DEVICE_ID = process.env.MYS_DEVICE_ID || uuidv4()
-
-/**
- * axios 实例
- * 设置 timeout 避免接口卡死
- */
-const $axios = axios.create({
-  timeout: 15000,
-})
-
-/**
- * Cookie 配置缓存
- *
- * 避免原神 / 星铁 / 绝区零三个任务重复解析 MYS_COOKIES。
- */
-let COOKIE_CONFIG_CACHE = null
-
-/**
- * 米游社账号信息缓存
- *
- * 避免同一个 Cookie 在多个游戏签到成功后重复请求用户信息接口。
- */
-const MYS_ACCOUNT_INFO_CACHE = new Map()
-
-/**
  * 游戏配置
- *
- * act_id:
- * - 默认使用这里配置的固定 act_id
- * - 只有当签到接口判断 act_id 疑似失效时，才会动态刷新
- *
- * actPage:
- * - 用于动态解析最新 act_id
- * - 如果官方页面结构变化，可能解析失败
- * - 解析失败不会中断整体流程，只会继续按失败处理
  */
 const GAME_CONFIG = {
   Genshin: {
@@ -101,47 +50,6 @@ const GAME_CONFIG = {
 }
 
 /**
- * 公共请求头
- */
-const COMMON_HEADERS = {
-  DS: '',
-  Cookie: '',
-  Host: WEB_HOST,
-  'User-Agent': `Mozilla/5.0 (iPhone; CPU iPhone OS 18_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) miHoYoBBS/${APP_VERSION}`,
-  'x-rpc-app_version': APP_VERSION,
-  'x-rpc-client_type': 5,
-  'Accept-Language': 'zh-CN,zh-Hans;q=0.9',
-  Accept: 'application/json, text/plain, */*',
-}
-
-/**
- * 查询角色信息时使用的请求头
- */
-const ROLE_HEADERS = {
-  Referer: 'https://webstatic.mihoyo.com/',
-  'x-rpc-device_id': DEVICE_ID,
-  Origin: 'https://webstatic.mihoyo.com',
-  'x-rpc-challenge': 'null',
-  Accept: 'application/json, text/plain, */*',
-  'Accept-Encoding': 'gzip, deflate, br',
-}
-
-/**
- * 签到时使用的请求头
- */
-const SIGN_HEADERS = {
-  Referer: 'https://act.mihoyo.com/',
-  'x-rpc-device_model': 'iPhone14,4',
-  'x-rpc-device_id': DEVICE_ID,
-  'x-rpc-platform': 1,
-  'x-rpc-device_name': 'iPhone',
-  Origin: 'https://act.mihoyo.com',
-  'Sec-Fetch-Site': 'same-site',
-  Connection: 'keep-alive',
-  'Content-Type': 'application/json;charset=utf-8',
-}
-
-/**
  * 获取游戏配置
  */
 function getGameConfig(gameKey) {
@@ -155,189 +63,13 @@ function getGameConfig(gameKey) {
 }
 
 /**
- * 读取 MYS_COOKIES
- */
-function getCookieConfig() {
-  if (COOKIE_CONFIG_CACHE) {
-    return COOKIE_CONFIG_CACHE
-  }
-
-  const mysCookies = process.env.MYS_COOKIES
-
-  if (!mysCookies) {
-    console.info('[米游社] No MYS_COOKIES configured, skip MYS tasks.')
-
-    COOKIE_CONFIG_CACHE = {
-      Genshin: [],
-      StarRail: [],
-      ZZZ: [],
-    }
-
-    return COOKIE_CONFIG_CACHE
-  }
-
-  const cookieList = parseCookieList(mysCookies)
-
-  COOKIE_CONFIG_CACHE = {
-    Genshin: cookieList,
-    StarRail: cookieList,
-    ZZZ: cookieList,
-  }
-
-  return COOKIE_CONFIG_CACHE
-}
-
-/**
- * 获取 Cookie 缓存 key
- *
- * 优先使用 passportHash。
- * 如果 Cookie 中提取不到通行证 ID，则使用 Cookie 内容 hash 兜底。
- *
- * 注意：
- * - 兜底 key 只用于内存缓存；
- * - 不输出 Cookie 原文；
- * - 不写入日志；
- * - 不写入摘要。
- */
-function getCookieCacheKey(cookie) {
-  const safeInfo = getSafePassportInfo(cookie)
-
-  if (safeInfo.passportHash) {
-    return `passport:${safeInfo.passportHash}`
-  }
-
-  const cookieHash = hashPassportId(String(cookie || ''))
-
-  return cookieHash
-    ? `cookie:${cookieHash}`
-    : 'cookie:unknown'
-}
-
-/**
- * 生成米游社 DS
- */
-function getDS() {
-  const salt = 'yUZ3s0Sna1IrSNfk29Vo6vRapdOyqyhB'
-  const t = Math.floor(Date.now() / 1e3)
-  const r = Math.random().toString(36).slice(-6)
-  const c = `salt=${salt}&t=${t}&r=${r}`
-
-  return `${t},${r},${md5(c)}`
-}
-
-/**
- * 组合请求头
- */
-async function getHeaders(cookie, whichHeader) {
-  return {
-    ...COMMON_HEADERS,
-    ...whichHeader,
-    Cookie: cookie,
-    DS: getDS(),
-  }
-}
-
-/**
- * 获取米游社账号信息
- *
- * 返回：
- * {
- *   mysNickname,
- *   passportHash,
- *   passportMasked
- * }
- *
- * 注意：
- * - 不返回完整 passportId
- * - 获取失败不影响签到
- */
-async function getMYSAccountInfo(cookie, gameKey) {
-  const game = getGameConfig(gameKey)
-  const fallbackSafeInfo = getSafePassportInfo(cookie)
-  const cacheKey = getCookieCacheKey(cookie)
-
-  if (MYS_ACCOUNT_INFO_CACHE.has(cacheKey)) {
-    return MYS_ACCOUNT_INFO_CACHE.get(cacheKey)
-  }
-
-  try {
-    const res = await $axios.request({
-      method: 'GET',
-      url: `https://${BBS_HOST}/user/wapi/getUserFullInfo?gids=2`,
-      headers: {
-        Cookie: cookie,
-        Host: BBS_HOST,
-        Referer: 'https://www.miyoushe.com/',
-        Origin: 'https://www.miyoushe.com',
-        'User-Agent': COMMON_HEADERS['User-Agent'],
-        Accept: 'application/json, text/plain, */*',
-      },
-    })
-
-    const data = res?.data
-
-    if (data?.retcode === 0) {
-      const mysNickname =
-        data.data?.user_info?.nickname ||
-        data.data?.userInfo?.nickname ||
-        data.data?.nickname ||
-        ''
-
-      const safeInfoFromResponse = getSafePassportInfo(data)
-
-      if (mysNickname) {
-        console.log(`[${game.name}] MYS account nickname fetched`)
-      }
-
-      const result = {
-        mysNickname,
-        passportHash: safeInfoFromResponse.passportHash || fallbackSafeInfo.passportHash,
-        passportMasked: safeInfoFromResponse.passportMasked || fallbackSafeInfo.passportMasked,
-      }
-
-      MYS_ACCOUNT_INFO_CACHE.set(cacheKey, result)
-
-      return result
-    }
-
-    console.warn(
-      `[${game.name}] Get MYS account info failed: retcode=${data?.retcode}, message=${data?.message}`
-    )
-
-    const result = {
-      mysNickname: '',
-      ...fallbackSafeInfo,
-    }
-
-    MYS_ACCOUNT_INFO_CACHE.set(cacheKey, result)
-
-    return result
-  } catch (err) {
-    console.warn(`[${game.name}] Get MYS account info error: ${formatAxiosError(err)}`)
-
-    const result = {
-      mysNickname: '',
-      ...fallbackSafeInfo,
-    }
-
-    MYS_ACCOUNT_INFO_CACHE.set(cacheKey, result)
-
-    return result
-  }
-}
-
-/**
  * 动态刷新 act_id 并重试签到
- *
- * 返回：
- * - true：刷新成功并重试签到成功
- * - false：刷新失败、无新 act_id、或重试失败
  */
 async function refreshActIdAndRetrySignIn(cookie, gameKey, role, currentActId) {
   const game = getGameConfig(gameKey)
 
   const latestActId = await fetchLatestActId(gameKey, game, {
-    axiosInstance: $axios,
+    axiosInstance: mysAxios,
     userAgent: COMMON_HEADERS['User-Agent'],
     formatAxiosError,
   })
@@ -358,75 +90,7 @@ async function refreshActIdAndRetrySignIn(cookie, gameKey, role, currentActId) {
 }
 
 /**
- * 获取账号绑定角色
- *
- * 返回结构：
- * - status: 'ok'      找到对应游戏角色
- * - status: 'no_role' Cookie 有效，但没有这个游戏的角色
- * - status: 'failed'  Cookie 失效、接口异常或其他登录失败
- */
-async function getRole(cookie, gameKey) {
-  const game = getGameConfig(gameKey)
-  const headers = await getHeaders(cookie, ROLE_HEADERS)
-
-  try {
-    const res = await $axios.request({
-      method: 'GET',
-      headers,
-      url: `https://${WEB_HOST}/binding/api/getUserGameRolesByCookie?game_biz=${game.game_biz}`,
-    })
-
-    const data = res?.data
-
-    if (!data) {
-      console.error(`[${game.name}] Login failed: empty response`)
-      return {
-        status: 'failed',
-        role: null,
-      }
-    }
-
-    if (data.retcode !== 0) {
-      console.error(`[${game.name}] Login failed: retcode=${data.retcode}, message=${data.message}`)
-      return {
-        status: 'failed',
-        role: null,
-      }
-    }
-
-    const role = data.data?.list?.[0]
-
-    if (!role?.game_uid) {
-      console.info(`[${game.name}] No character found, skip this account`)
-      return {
-        status: 'no_role',
-        role: null,
-      }
-    }
-
-    console.log(
-      `[${game.name}] Login successful <${role.nickname}(${maskUid(role.game_uid)})>`
-    )
-
-    return {
-      status: 'ok',
-      role,
-    }
-  } catch (err) {
-    console.error(`[${game.name}] Login error: ${formatAxiosError(err)}`)
-    return {
-      status: 'failed',
-      role: null,
-    }
-  }
-}
-
-/**
  * 执行签到
- *
- * retryOnActIdInvalid:
- * - true:  如果疑似 act_id 失效，则动态获取最新 act_id 并重试一次
- * - false: 防止无限递归重试
  */
 async function signIn(cookie, gameKey, role, retryOnActIdInvalid = true) {
   const game = getGameConfig(gameKey)
@@ -436,7 +100,14 @@ async function signIn(cookie, gameKey, role, retryOnActIdInvalid = true) {
     return false
   }
 
-  const headers = await getHeaders(cookie, {
+  const region = role.region || game.default_region
+
+  if (!region) {
+    console.error(`[${game.name}] Sign-in skipped: missing region`)
+    return false
+  }
+
+  const headers = getHeaders(cookie, {
     ...SIGN_HEADERS,
     'x-rpc-signgame': game.signgame,
   })
@@ -445,13 +116,13 @@ async function signIn(cookie, gameKey, role, retryOnActIdInvalid = true) {
 
   const data = {
     act_id: currentActId,
-    region: role.region || game.default_region,
+    region,
     uid: role.game_uid,
     lang: 'zh-cn',
   }
 
   try {
-    const res = await $axios.request({
+    const res = await mysAxios.request({
       method: 'POST',
       headers,
       data,
@@ -479,9 +150,6 @@ async function signIn(cookie, gameKey, role, retryOnActIdInvalid = true) {
       return true
     }
 
-    /**
-     * act_id 疑似失效时，只动态刷新当前游戏 act_id，并重试一次
-     */
     if (retryOnActIdInvalid && isActIdInvalid(body)) {
       console.warn(
         `[${game.name}] act_id may be invalid, current act_id=${currentActId}, trying to refresh...`
@@ -509,10 +177,6 @@ async function signIn(cookie, gameKey, role, retryOnActIdInvalid = true) {
   } catch (err) {
     const errorBody = err?.response?.data
 
-    /**
-     * 某些 act_id 错误可能以非 2xx HTTP 状态返回，axios 会进入 catch
-     * 所以这里也判断一次
-     */
     if (retryOnActIdInvalid && isActIdInvalid(errorBody)) {
       console.warn(
         `[${game.name}] act_id may be invalid from error response, current act_id=${currentActId}, trying to refresh...`
@@ -547,26 +211,33 @@ async function getSignReward(cookie, gameKey, role) {
     return null
   }
 
-  const headers = await getHeaders(cookie, {
+  const region = role.region || game.default_region
+
+  if (!region) {
+    console.error(`[${game.name}] Get reward skipped: missing region`)
+    return null
+  }
+
+  const headers = getHeaders(cookie, {
     ...SIGN_HEADERS,
     'x-rpc-signgame': game.signgame,
   })
 
   const query = new URLSearchParams({
     act_id: getCurrentActId(gameKey, game),
-    region: role.region || game.default_region,
+    region,
     uid: role.game_uid,
     lang: 'zh-cn',
   }).toString()
 
   try {
     const [infoRes, homeRes] = await Promise.all([
-      $axios.request({
+      mysAxios.request({
         method: 'GET',
         headers,
         url: `https://${WEB_HOST}/event/luna/${game.signgame}/info?${query}`,
       }),
-      $axios.request({
+      mysAxios.request({
         method: 'GET',
         headers,
         url: `https://${WEB_HOST}/event/luna/${game.signgame}/home?${query}`,
@@ -609,45 +280,11 @@ async function getSignReward(cookie, gameKey, role) {
 }
 
 /**
- * 输出奖励日志，供邮件摘要解析
- *
- * 注意：
- * - 不输出完整通行证 ID
- * - passportHash 用于同账号匹配
- * - passportMasked 用于邮件展示
- */
-function logReward(gameName, cookieIndex, role, reward, accountInfo = {}) {
-  if (!reward) return
-
-  console.log(
-    `[${gameName}] Reward: ${JSON.stringify({
-      user: cookieIndex + 1,
-      passportHash: accountInfo.passportHash || '',
-      passportMasked: accountInfo.passportMasked || '',
-      mysNickname: accountInfo.mysNickname || '',
-      uid: maskUid(role.game_uid),
-      day: reward.day,
-      name: reward.name,
-      cnt: reward.cnt,
-      icon: reward.icon,
-    })}`
-  )
-}
-
-/**
  * 米游社签到入口
- *
- * 逻辑：
- * - 没有 Cookie：跳过
- * - Cookie 有效但没有对应游戏角色：跳过该账号，不算失败
- * - 某个游戏所有账号都没有角色：该游戏整体 skipped=true
- * - Cookie 失效 / 接口异常 / 签到失败：算失败
- * - act_id 疑似失效时，只动态刷新当前游戏的 act_id 并重试一次
  */
 async function doMYSSign(gameKey) {
   const game = getGameConfig(gameKey)
-  const CONF = getCookieConfig()
-  const cookieList = CONF[gameKey] || []
+  const cookieList = getCookieList()
 
   if (!cookieList.length) {
     console.info(`[${game.name}] Skip: no cookie configured`)
@@ -672,12 +309,12 @@ async function doMYSSign(gameKey) {
 
     console.log(`[${game.name}] User ${cookieIndex + 1} starts signing in...`)
 
-    const roleResult = await getRole(cookie, gameKey)
+    const roleResult = await getRole(cookie, game)
 
     if (roleResult.status === 'no_role') {
       noRole++
 
-      if (cookieIndex < cookieList.length - 1) {
+      if (hasNextItem(cookieIndex, cookieList)) {
         await randomSleep(1, 3)
       }
 
@@ -687,7 +324,7 @@ async function doMYSSign(gameKey) {
     if (roleResult.status === 'failed') {
       failed++
 
-      if (cookieIndex < cookieList.length - 1) {
+      if (hasNextItem(cookieIndex, cookieList)) {
         await randomSleep(1, 3)
       }
 
@@ -705,7 +342,7 @@ async function doMYSSign(gameKey) {
         const reward = await getSignReward(cookie, gameKey, role)
 
         if (reward) {
-          const accountInfo = await getMYSAccountInfo(cookie, gameKey)
+          const accountInfo = await getMYSAccountInfo(cookie, game)
           logReward(game.name, cookieIndex, role, reward, accountInfo)
         }
       } else {
@@ -715,7 +352,7 @@ async function doMYSSign(gameKey) {
       failed++
     }
 
-    if (cookieIndex < cookieList.length - 1) {
+    if (hasNextItem(cookieIndex, cookieList)) {
       await randomSleep(1, 3)
     }
   }
