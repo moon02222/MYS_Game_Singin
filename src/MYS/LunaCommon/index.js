@@ -1,4 +1,4 @@
-import { randomSleep, maskUid, formatAxiosError } from '../utils/index.js'
+import { randomSleep, maskUid, formatAxiosError } from '../../utils/index.js'
 import {
   WEB_HOST,
   mysAxios,
@@ -10,42 +10,43 @@ import {
   getMYSAccountInfo,
   logReward,
   hasNextItem,
-} from './shared.js'
+} from '../shared.js'
 import {
   getCurrentActId,
   fetchLatestActId,
-} from './actId.js'
+} from '../actId.js'
 import {
   isActIdInvalid,
-} from './actIdInvalid.js'
+} from '../actIdInvalid.js'
+
+const LUNA_HOME_URL = `https://${WEB_HOST}/event/luna/home`
+const LUNA_INFO_URL = `https://${WEB_HOST}/event/luna/info`
+const LUNA_SIGN_URL = `https://${WEB_HOST}/event/luna/sign`
 
 /**
- * 游戏配置
+ * 通用 Luna 接口游戏配置
  */
-const GAME_CONFIG = {
-  Genshin: {
-    name: '原神-米游社',
-    game_biz: 'hk4e_cn',
-    act_id: 'e202311201442471',
-    signgame: 'hk4e',
-    default_region: 'cn_gf01',
-    actPage: 'https://act.mihoyo.com/bbs/event/signin/hk4e/index.html',
+const LUNA_COMMON_GAME_CONFIG = {
+  Honkai2: {
+    name: '崩坏学园2-米游社',
+    game_biz: 'bh2_cn',
+    act_id: 'e202203291431091',
+    default_region: '',
+    actPage: 'https://webstatic.mihoyo.com/bbs/event/signin/bh2/index.html',
   },
-  StarRail: {
-    name: '星穹铁道-米游社',
-    game_biz: 'hkrpg_cn',
-    act_id: 'e202304121516551',
-    signgame: 'hkrpg',
-    default_region: 'prod_gf_cn',
-    actPage: 'https://act.mihoyo.com/bbs/event/signin/hkrpg/index.html',
+  Honkai3rd: {
+    name: '崩坏3-米游社',
+    game_biz: 'bh3_cn',
+    act_id: 'e202306201626331',
+    default_region: '',
+    actPage: 'https://webstatic.mihoyo.com/bbs/event/signin/bh3/index.html',
   },
-  ZZZ: {
-    name: '绝区零-米游社',
-    game_biz: 'nap_cn',
-    act_id: 'e202406242138391',
-    signgame: 'zzz',
-    default_region: 'prod_gf_cn',
-    actPage: 'https://act.mihoyo.com/bbs/event/signin/zzz/index.html',
+  TearsOfThemis: {
+    name: '未定事件簿-米游社',
+    game_biz: 'nxx_cn',
+    act_id: 'e202202251749321',
+    default_region: '',
+    actPage: 'https://webstatic.mihoyo.com/bbs/event/signin/nxx/index.html',
   },
 }
 
@@ -53,13 +54,40 @@ const GAME_CONFIG = {
  * 获取游戏配置
  */
 function getGameConfig(gameKey) {
-  const config = GAME_CONFIG[gameKey]
+  const config = LUNA_COMMON_GAME_CONFIG[gameKey]
 
   if (!config) {
-    throw new Error(`Unsupported gameKey: ${gameKey}`)
+    throw new Error(`Unsupported luna common gameKey: ${gameKey}`)
   }
 
   return config
+}
+
+/**
+ * 获取通用 Luna Referer
+ */
+function getLunaCommonReferer(gameKey, game) {
+  const query = new URLSearchParams({
+    bbs_auth_required: 'true',
+    act_id: getCurrentActId(gameKey, game),
+    bbs_presentation_style: 'fullscreen',
+    utm_source: 'bbs',
+    utm_medium: 'mys',
+    utm_campaign: 'icon',
+  }).toString()
+
+  return `${game.actPage}?${query}`
+}
+
+/**
+ * 获取通用 Luna 签到请求头
+ */
+function getLunaCommonHeaders(cookie, gameKey, game) {
+  return getHeaders(cookie, {
+    ...SIGN_HEADERS,
+    Referer: getLunaCommonReferer(gameKey, game),
+    Origin: 'https://webstatic.mihoyo.com',
+  })
 }
 
 /**
@@ -90,7 +118,7 @@ async function refreshActIdAndRetrySignIn(cookie, gameKey, role, currentActId) {
 }
 
 /**
- * 执行签到
+ * 执行通用 Luna 签到
  */
 async function signIn(cookie, gameKey, role, retryOnActIdInvalid = true) {
   const game = getGameConfig(gameKey)
@@ -107,12 +135,8 @@ async function signIn(cookie, gameKey, role, retryOnActIdInvalid = true) {
     return false
   }
 
-  const headers = getHeaders(cookie, {
-    ...SIGN_HEADERS,
-    'x-rpc-signgame': game.signgame,
-  })
-
   const currentActId = getCurrentActId(gameKey, game)
+  const headers = getLunaCommonHeaders(cookie, gameKey, game)
 
   const data = {
     act_id: currentActId,
@@ -126,7 +150,7 @@ async function signIn(cookie, gameKey, role, retryOnActIdInvalid = true) {
       method: 'POST',
       headers,
       data,
-      url: `https://${WEB_HOST}/event/luna/${game.signgame}/sign`,
+      url: LUNA_SIGN_URL,
     })
 
     const body = res?.data
@@ -138,16 +162,27 @@ async function signIn(cookie, gameKey, role, retryOnActIdInvalid = true) {
 
     const message = body.message || 'Unknown'
     const retcode = body.retcode
+    const captchaRequired = body.data?.success === 1
 
     if (
-      message === 'OK' ||
-      retcode === 0 ||
-      /已签到|已经签到|签到过|今日已签到|already/i.test(message)
+      !captchaRequired &&
+      (
+        message === 'OK' ||
+        retcode === 0 ||
+        /已签到|已经签到|签到过|今日已签到|already/i.test(message)
+      )
     ) {
       console.log(
         `[${game.name}] <${role.nickname}(${maskUid(role.game_uid)})> Sign-in successful`
       )
       return true
+    }
+
+    if (captchaRequired) {
+      console.error(
+        `[${game.name}] <${role.nickname}(${maskUid(role.game_uid)})> Sign-in failed: captcha required`
+      )
+      return false
     }
 
     if (retryOnActIdInvalid && isActIdInvalid(body)) {
@@ -218,15 +253,18 @@ async function getSignReward(cookie, gameKey, role) {
     return null
   }
 
-  const headers = getHeaders(cookie, {
-    ...SIGN_HEADERS,
-    'x-rpc-signgame': game.signgame,
-  })
+  const currentActId = getCurrentActId(gameKey, game)
+  const headers = getLunaCommonHeaders(cookie, gameKey, game)
 
-  const query = new URLSearchParams({
-    act_id: getCurrentActId(gameKey, game),
+  const infoQuery = new URLSearchParams({
+    act_id: currentActId,
     region,
     uid: role.game_uid,
+    lang: 'zh-cn',
+  }).toString()
+
+  const homeQuery = new URLSearchParams({
+    act_id: currentActId,
     lang: 'zh-cn',
   }).toString()
 
@@ -235,12 +273,12 @@ async function getSignReward(cookie, gameKey, role) {
       mysAxios.request({
         method: 'GET',
         headers,
-        url: `https://${WEB_HOST}/event/luna/${game.signgame}/info?${query}`,
+        url: `${LUNA_INFO_URL}?${infoQuery}`,
       }),
       mysAxios.request({
         method: 'GET',
         headers,
-        url: `https://${WEB_HOST}/event/luna/${game.signgame}/home?${query}`,
+        url: `${LUNA_HOME_URL}?${homeQuery}`,
       }),
     ])
 
@@ -280,9 +318,9 @@ async function getSignReward(cookie, gameKey, role) {
 }
 
 /**
- * 米游社签到入口
+ * 通用 Luna 米游社签到入口
  */
-async function doMYSSign(gameKey) {
+async function doMYSCommonSign(gameKey) {
   const game = getGameConfig(gameKey)
   const cookieList = getCookieList()
 
@@ -384,4 +422,4 @@ async function doMYSSign(gameKey) {
   }
 }
 
-export { doMYSSign }
+export { doMYSCommonSign }

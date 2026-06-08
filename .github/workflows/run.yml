@@ -10,9 +10,18 @@ on:
 permissions:
   contents: read
 
+# 防止定时任务和手动触发任务同时运行
+# cancel-in-progress: false 表示不取消正在运行的任务
+concurrency:
+  group: mihoyo-sign-in
+  cancel-in-progress: false
+
 jobs:
   build-and-run:
     runs-on: ubuntu-latest
+
+    # 防止接口异常或网络问题导致 workflow 长时间挂起
+    timeout-minutes: 20
 
     # job 级别环境变量
     # 注意：SMTP_PASSWORD 不放在这里，只在发送邮件步骤中注入

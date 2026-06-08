@@ -1,4 +1,5 @@
 import { doMYSSign } from './src/MYS/index.js'
+import { doMYSCommonSign } from './src/MYS/LunaCommon/index.js'
 import { doCloudSign } from './src/MihoyoCloud/index.js'
 import { maskSensitive } from './src/utils/index.js'
 
@@ -65,6 +66,11 @@ async function runTask(label, task) {
  */
 async function main() {
   const results = []
+
+  // 通用 Luna 米游社签到
+  results.push(await runTask('崩坏学园2-米游社', () => doMYSCommonSign('Honkai2')))
+  results.push(await runTask('崩坏3-米游社', () => doMYSCommonSign('Honkai3rd')))
+  results.push(await runTask('未定事件簿-米游社', () => doMYSCommonSign('TearsOfThemis')))
 
   // 米游社原神签到
   results.push(await runTask('原神-米游社', () => doMYSSign('Genshin')))

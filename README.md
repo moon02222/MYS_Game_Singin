@@ -1,6 +1,6 @@
 # 米游社 / 米家云游戏 签到脚本（Node.js）
 
-这是一个支持多账号的米游社、云原神、云崩铁自动签到脚本（Node.js）。支持通过 GitHub Actions 定时运行，并可将签到结果通过邮件推送。
+这是一个支持多账号的米游社及米家云游戏自动签到脚本（Node.js）。支持通过 GitHub Actions 定时运行，并可将签到结果通过邮件推送。
 
 简洁说明：将你的米游社 Cookie 和/或云游戏 Token 配置为仓库 Secrets，工作流会按计划运行并发送邮件（可选）。
 
@@ -9,6 +9,9 @@
 ## 功能
 
 - 米游社签到（使用米游社 Cookie）
+  - 崩坏学园2
+  - 崩坏3
+  - 未定事件簿
   - 原神
   - 崩坏：星穹铁道
   - 绝区零
@@ -20,7 +23,7 @@
 - 支持多个账号（换行或英文逗号分隔）
 - 支持 GitHub Actions 定时运行
 - 支持执行完成后通过 SMTP 邮件推送 HTML 签到结果
-- 会自动跳过未配置的功能项（不会报错或计为失败）
+- 会自动跳过未配置或未绑定角色的项目（不会报错或计为失败）
 
 ---
 
@@ -47,9 +50,14 @@ MYS_Game_Signin/
 │
 ├─ src/
 │  ├─ MYS/
+│  │  ├─ index.js
+│  │  ├─ shared.js
+│  │  ├─ LunaCommon/
+│  │  │  └─ index.js
+│  │  ├─ Preview/
+│  │  │  └─ index.js
 │  │  ├─ actId.js
-│  │  ├─ actIdInvalid.js
-│  │  └─ index.js
+│  │  └─ actIdInvalid.js
 │  │
 │  ├─ MihoyoCloud/
 │  │  └─ index.js
