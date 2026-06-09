@@ -243,19 +243,37 @@ function findCloudReward(row, group) {
 }
 
 /**
- * 计算任务统计
+ * 计算签到统计
+ *
+ * 统计口径：
+ * - 按账号签到次数统计，不按任务数统计
+ * - 每个任务的 summary.total 表示该任务实际参与签到的账号数
+ * - 每个任务的 summary.failed 表示该任务失败账号数
+ * - 成功数 = total - failed
  *
  * 注意：
  * 当前 parser 会过滤 skipped 任务，所以这里不统计 skipped。
  */
 function getTaskStats(mysRows = [], cloudRows = []) {
+  const getTotal = (row) => Number(row.summary?.total || 0)
+  const getFailed = (row) => Number(row.summary?.failed || 0)
+  const getSuccess = (row) => Math.max(0, getTotal(row) - getFailed(row))
+
   const allRows = [...mysRows, ...cloudRows].filter((row) => row.summary)
 
-  const total = allRows.length
-  const success = allRows.filter((row) => row.summary?.success).length
-  const failed = allRows.filter((row) => row.summary && !row.summary.success && !row.summary.skipped).length
-  const mysSuccess = mysRows.filter((row) => row.summary?.success).length
-  const cloudSuccess = cloudRows.filter((row) => row.summary?.success).length
+  const total = allRows.reduce((sum, row) => sum + getTotal(row), 0)
+  const failed = allRows.reduce((sum, row) => sum + getFailed(row), 0)
+  const success = allRows.reduce((sum, row) => sum + getSuccess(row), 0)
+
+  const mysSuccess = mysRows.reduce((sum, row) => {
+    if (!row.summary) return sum
+    return sum + getSuccess(row)
+  }, 0)
+
+  const cloudSuccess = cloudRows.reduce((sum, row) => {
+    if (!row.summary) return sum
+    return sum + getSuccess(row)
+  }, 0)
 
   return {
     total,
@@ -277,14 +295,14 @@ function renderStatsSection(mysRows = [], cloudRows = []) {
   return `
     <div style="margin-top:14px;padding:12px;background:#f8efd9;border:1px solid #dfcda8;border-radius:13px;">
       <div style="font-size:13px;font-weight:bold;color:#5b4a32;text-align:center;margin-bottom:10px;">
-        📌 本次任务统计
+        📌 本次签到统计
       </div>
 
       <table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;table-layout:fixed;">
         <tr>
           <td style="padding:5px;">
             <div style="background:#fffaf0;border:1px solid #d8c8a8;border-radius:10px;padding:10px 6px;text-align:center;">
-              <div style="font-size:11px;color:#7b6a50;margin-bottom:4px;">总任务</div>
+              <div style="font-size:11px;color:#7b6a50;margin-bottom:4px;">签到数</div>
               <div style="font-size:20px;font-weight:bold;color:#4b3b27;">${stats.total}</div>
             </div>
           </td>
