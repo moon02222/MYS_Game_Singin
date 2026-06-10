@@ -114,6 +114,77 @@ jobs:
           HAS_STARRAIL_TOKENS: ${{ secrets.STARRAIL_TOKENS != '' }}
         run: node scripts/summary/index.js
 
+      # 准备要上传到静态网站的签到结果页面
+      # 将 summary.html 复制为 index.html，方便通过 /signin/ 直接访问
+      - name: Prepare Web Summary
+        if: always()
+        run: |
+          mkdir -p web-summary
+
+          if [ -f summary.html ]; then
+            cp summary.html web-summary/index.html
+          else
+            cat > web-summary/index.html <<'EOF'
+          <!doctype html>
+          <html lang="zh-CN">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>签到结果生成失败</title>
+            <style>
+              body {
+                font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+                max-width: 720px;
+                margin: 60px auto;
+                padding: 0 20px;
+                color: #333;
+                background: #f8f5ef;
+              }
+
+              .card {
+                border: 1px solid #e5dccb;
+                border-radius: 16px;
+                padding: 24px;
+                background: #fffaf0;
+                box-shadow: 0 8px 24px rgba(0, 0, 0, .06);
+              }
+
+              h1 {
+                margin-top: 0;
+                color: #7c4a2d;
+              }
+
+              p {
+                line-height: 1.8;
+              }
+            </style>
+          </head>
+          <body>
+            <div class="card">
+              <h1>签到结果生成失败</h1>
+              <p>未找到 summary.html，请检查 GitHub Actions 日志。</p>
+            </div>
+          </body>
+          </html>
+          EOF
+          fi
+
+          date '+%Y-%m-%d %H:%M:%S %z' > web-summary/updated-at.txt
+
+      # 通过 FTP 上传签到结果到宝塔静态网站
+      # 你的宝塔 FTP 根目录已设置为：
+      # /www/wwwroot/tushanhonghong.top/signin
+      # 所以这里 server-dir 使用 ./
+      - name: Deploy Summary To Static Website By FTP
+        if: always()
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./web-summary/
+          server-dir: ./
+
       # 使用 nodemailer 发送邮件通知
       # SMTP_PASSWORD 只在此步骤中注入，避免暴露给前面的签到和构建步骤
       - name: Send Email Notification
